@@ -484,7 +484,7 @@ function setIngestionProgress(state) {
 
   if (phase === 'scan') {
     statusTxt.textContent = 'Varredura de disco...';
-    detailsTxt.textContent = `Encontrados: ${Number(state?.matchedFiles || 0).toLocaleString()} XMLs válidos em ${Number(state?.scannedFiles || 0).toLocaleString()} arquivos varridos`;
+    detailsTxt.textContent = `Encontrados: ${Number(state?.matchedFiles || 0).toLocaleString()} XMLs de tabelas e extensões`;
     fill.style.width = '10%';
     percentTxt.textContent = '';
   } else if (phase === 'parse') {

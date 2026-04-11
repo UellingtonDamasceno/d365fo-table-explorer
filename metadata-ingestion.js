@@ -9,13 +9,35 @@
 
   function deriveContextFromPath(path) {
     const parts = String(path || '').split(/[\\/]+/).filter(Boolean);
+    
+    // 1. Procurar a pasta AxTable ou AxTableExtension no caminho
     const axIndex = parts.findIndex(p => AX_FOLDER_RX.test(p));
-    if (axIndex < 0) return { isRelevant: false, isExtension: false, model: 'Unknown' };
+    
+    // Se não houver uma pasta de tabela no caminho, ignore o arquivo (mesma lógica do -match do PS)
+    if (axIndex < 0) return { isRelevant: false };
+
+    // 2. Filtro de Segurança: Ignorar metadados compilados, binários ou fontes X++
+    const hasSystemPart = parts.some(p => /^(xppmetadata|bin|xppsource|buildproject|descriptor|resources|reports|webfiles)$/i.test(p));
+    if (hasSystemPart) return { isRelevant: false };
+
     const axFolder = parts[axIndex];
-    const model = (axIndex > 0 ? parts[axIndex - 1] : 'Unknown') || 'Unknown';
+    const isExtension = /Extension$/i.test(axFolder);
+    
+    // 3. Identificar o Modelo (pasta pai do AxTable ou pai do Delta)
+    let model = 'Unknown';
+    if (axIndex > 0) {
+      let prev = parts[axIndex - 1];
+      // Estrutura comum: <Model>/<Model>/AxTable ou <Model>/<Model>/Delta/AxTable
+      if (prev.toLowerCase() === 'delta' && axIndex > 1) {
+        model = parts[axIndex - 2];
+      } else {
+        model = prev;
+      }
+    }
+
     return {
       isRelevant: true,
-      isExtension: /Extension$/i.test(axFolder),
+      isExtension,
       model,
       axFolder,
     };
@@ -30,40 +52,36 @@
       stats.dirs += 1;
       for await (const [name, handle] of dirHandle.entries()) {
         if (handle.kind === 'directory') {
-          // OTIMIZAÇÃO EXTREMA: Podar árvores de diretório irrelevantes
-          // 1. Se for uma pasta de objetos AOT (começa com Ax) mas não for o nosso alvo (AxTable/AxTableExtension)
+          // OTIMIZAÇÃO: Ignorar pastas AOT irrelevantes (AxClass, AxForm, etc)
           const isAotFolder = /^ax[a-z0-9]+$/i.test(name);
-          const isTargetFolder = AX_FOLDER_RX.test(name);
-          if (isAotFolder && !isTargetFolder) {
-            continue; // Pula imediatamente pastas massivas como AxClass, AxForm, AxDataEntityView...
-          }
+          const isTarget = AX_FOLDER_RX.test(name);
           
-          // 2. Pular pastas de sistema e compilação do D365FO que não contêm XMLs de metadados puros
-          const isSystemFolder = /^(xppmetadata|bin|descriptor|resources|reports|webfiles|buildproject)$/i.test(name);
-          if (isSystemFolder) {
-            continue;
-          }
+          if (isAotFolder && !isTarget) continue;
+
+          // Ignorar pastas de sistema que nunca contêm definições de tabelas fonte
+          if (/^(xppmetadata|bin|buildproject|xppsource|descriptor|resources|reports|webfiles)$/i.test(name)) continue;
 
           await walk(handle, [...pathParts, name]);
           continue;
         }
+
         stats.scannedFiles += 1;
+        
+        // Só processamos XMLs
         if (!name.toLowerCase().endsWith('.xml')) {
-          if (onProgress && stats.scannedFiles % 300 === 0) onProgress({ ...stats });
+          if (onProgress && stats.scannedFiles % 500 === 0) onProgress({ ...stats });
           continue;
         }
+
         const relPath = [...pathParts, name].join('/');
         const ctx = deriveContextFromPath(relPath);
-        if (!ctx.isRelevant) {
-          if (onProgress && stats.scannedFiles % 300 === 0) onProgress({ ...stats });
-          continue;
+
+        if (ctx.isRelevant) {
+          files.push({ handle, path: relPath });
+          stats.matchedFiles += 1;
         }
-        files.push({
-          handle,
-          path: relPath,
-        });
-        stats.matchedFiles += 1;
-        if (onProgress && (stats.matchedFiles % 100 === 0 || stats.scannedFiles % 300 === 0)) {
+
+        if (onProgress && (stats.matchedFiles % 100 === 0 || stats.scannedFiles % 500 === 0)) {
           onProgress({ ...stats });
         }
       }
