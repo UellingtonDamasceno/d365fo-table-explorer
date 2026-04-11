@@ -30,6 +30,20 @@
       stats.dirs += 1;
       for await (const [name, handle] of dirHandle.entries()) {
         if (handle.kind === 'directory') {
+          // OTIMIZAÇÃO EXTREMA: Podar árvores de diretório irrelevantes
+          // 1. Se for uma pasta de objetos AOT (começa com Ax) mas não for o nosso alvo (AxTable/AxTableExtension)
+          const isAotFolder = /^ax[a-z0-9]+$/i.test(name);
+          const isTargetFolder = AX_FOLDER_RX.test(name);
+          if (isAotFolder && !isTargetFolder) {
+            continue; // Pula imediatamente pastas massivas como AxClass, AxForm, AxDataEntityView...
+          }
+          
+          // 2. Pular pastas de sistema e compilação do D365FO que não contêm XMLs de metadados puros
+          const isSystemFolder = /^(xppmetadata|bin|descriptor|resources|reports|webfiles|buildproject)$/i.test(name);
+          if (isSystemFolder) {
+            continue;
+          }
+
           await walk(handle, [...pathParts, name]);
           continue;
         }
