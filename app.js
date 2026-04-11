@@ -459,44 +459,60 @@ function hideOverlay() {
 function resetIngestionProgress() {
   const box = document.getElementById('ingestion-progress');
   const fill = document.getElementById('ingestion-progress-fill');
-  const text = document.getElementById('ingestion-progress-text');
+  const statusTxt = document.getElementById('ingestion-status-text');
+  const percentTxt = document.getElementById('ingestion-percent');
+  const detailsTxt = document.getElementById('ingestion-progress-details');
   if (box) box.classList.add('hidden');
   if (fill) fill.style.width = '0%';
-  if (text) text.textContent = '';
+  if (statusTxt) statusTxt.textContent = 'Iniciando...';
+  if (percentTxt) percentTxt.textContent = '0%';
+  if (detailsTxt) detailsTxt.textContent = '';
 }
 
 function setIngestionProgress(state) {
   const box = document.getElementById('ingestion-progress');
   const fill = document.getElementById('ingestion-progress-fill');
-  const text = document.getElementById('ingestion-progress-text');
-  if (!box || !fill || !text) return;
+  const statusTxt = document.getElementById('ingestion-status-text');
+  const percentTxt = document.getElementById('ingestion-percent');
+  const detailsTxt = document.getElementById('ingestion-progress-details');
+  
+  if (!box || !fill || !statusTxt || !detailsTxt || !percentTxt) return;
   box.classList.remove('hidden');
 
   const phase = state?.phase || '';
   let percent = 0;
-  let label = '';
 
   if (phase === 'scan') {
-    label = `Varredura: ${Number(state?.matchedFiles || 0).toLocaleString()} XML válidos em ${Number(state?.scannedFiles || 0).toLocaleString()} arquivos`;
+    statusTxt.textContent = 'Varredura de disco...';
+    detailsTxt.textContent = `Encontrados: ${Number(state?.matchedFiles || 0).toLocaleString()} XMLs válidos em ${Number(state?.scannedFiles || 0).toLocaleString()} arquivos varridos`;
+    fill.style.width = '10%';
+    percentTxt.textContent = '';
   } else if (phase === 'parse') {
     const processed = Number(state?.processed || 0);
     const total = Number(state?.total || 0);
-    percent = total > 0 ? (processed / total) * 100 : 0;
-    label = `Processamento: ${processed.toLocaleString()}/${total.toLocaleString()} arquivos | erros: ${Number(state?.errors || 0)} | workers: ${Number(state?.workersDone || 0)}/${Number(state?.workersTotal || 0)}`;
+    percent = total > 0 ? Math.round((processed / total) * 100) : 0;
+    statusTxt.textContent = 'Parsing XML em paralelo...';
+    detailsTxt.textContent = `${processed.toLocaleString()} / ${total.toLocaleString()} arquivos | ${Number(state?.workersDone || 0)}/${Number(state?.workersTotal || 0)} threads`;
+    percentTxt.textContent = `${percent}%`;
+    fill.style.width = `${10 + (percent * 0.85)}%`; // goes up to 95%
   } else if (phase === 'persist') {
     const processed = Number(state?.processed || 0);
     const total = Number(state?.total || 0);
-    percent = total > 0 ? (processed / total) * 100 : 0;
-    label = `Persistindo IndexedDB: ${processed.toLocaleString()}/${total.toLocaleString()} tabelas`;
+    percent = total > 0 ? Math.round((processed / total) * 100) : 0;
+    statusTxt.textContent = 'Salvando no IndexedDB...';
+    detailsTxt.textContent = `${processed.toLocaleString()} / ${total.toLocaleString()} tabelas persistidas`;
+    percentTxt.textContent = '98%';
+    fill.style.width = '98%';
   } else if (phase === 'done') {
-    percent = 100;
-    label = state?.message || 'Importação concluída.';
+    statusTxt.textContent = 'Concluído!';
+    detailsTxt.textContent = state?.message || 'Importação finalizada com sucesso.';
+    percentTxt.textContent = '100%';
+    fill.style.width = '100%';
   } else if (phase === 'error') {
-    label = state?.message || 'Falha durante a importação.';
+    statusTxt.textContent = 'Falha na importação';
+    statusTxt.style.color = 'var(--accent-red)';
+    detailsTxt.textContent = state?.message || 'Erro desconhecido.';
   }
-
-  fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
-  text.textContent = label;
 }
 
 async function importFromDirectory() {
@@ -511,6 +527,9 @@ async function importFromDirectory() {
   document.getElementById('file-input-area').classList.remove('hidden');
   resetIngestionProgress();
 
+  console.log('[Ingestion] Iniciando importação Local-First...');
+  const tStartTotal = performance.now();
+
   try {
     setLoading('Solicitando acesso à pasta PackagesLocalDirectory...');
     if (window.D365MetadataDB?.isSupported?.()) {
@@ -521,9 +540,14 @@ async function importFromDirectory() {
     const rootHandle = await window.showDirectoryPicker({ mode: 'read' });
 
     setLoading('Varrendo arquivos XML...');
+    const tStartScan = performance.now();
     const scan = await window.D365Ingestion.collectXmlFiles(rootHandle, {
       onProgress: (p) => setIngestionProgress(p),
     });
+    const tEndScan = performance.now();
+    const scanTimeMs = (tEndScan - tStartScan).toFixed(2);
+    console.log(`[Ingestion] 🔍 Fase 1 (Varredura) concluída em ${scanTimeMs}ms. Arquivos encontrados: ${scan.files.length}`);
+
     if (!scan.files.length) {
       setLoading('Nenhum XML de AxTable/AxTableExtension foi encontrado na pasta selecionada.');
       if (overlayWasHidden) {
@@ -534,17 +558,30 @@ async function importFromDirectory() {
     }
 
     setLoading(`Processando ${scan.files.length.toLocaleString()} arquivos em paralelo...`);
+    const tStartParse = performance.now();
     const parsed = await window.D365Ingestion.processFiles(scan.files, {
       onProgress: (p) => setIngestionProgress(p),
     });
+    const tEndParse = performance.now();
+    const parseTimeMs = (tEndParse - tStartParse).toFixed(2);
+    console.log(`[Ingestion] ⚙️ Fase 2 (Processamento/Merge) concluída em ${parseTimeMs}ms. Tabelas únicas resultantes: ${parsed.tables.length}`);
 
     setLoading('Persistindo metadados no IndexedDB...');
     setIngestionProgress({ phase: 'persist', processed: 0, total: parsed.tables.length });
+    const tStartPersist = performance.now();
     if (window.D365MetadataDB?.isSupported?.()) {
       await window.D365MetadataDB.saveImport(parsed);
       lastImportInfo = await window.D365MetadataDB.getImportInfo();
     }
-    setIngestionProgress({ phase: 'done', message: `Importação concluída: ${parsed.tables.length.toLocaleString()} tabelas` });
+    const tEndPersist = performance.now();
+    const persistTimeMs = (tEndPersist - tStartPersist).toFixed(2);
+    console.log(`[Ingestion] 💾 Fase 3 (Indexação/Persistência) concluída em ${persistTimeMs}ms.`);
+
+    const tEndTotal = performance.now();
+    const totalTimeSec = ((tEndTotal - tStartTotal) / 1000).toFixed(2);
+    console.log(`[Ingestion] ✅ Importação completa! Tempo total: ${totalTimeSec} segundos.`);
+
+    setIngestionProgress({ phase: 'done', message: `Importação concluída: ${parsed.tables.length.toLocaleString()} tabelas em ${totalTimeSec}s` });
     init({ tables: parsed.tables });
   } catch (err) {
     if (err?.name === 'AbortError') {

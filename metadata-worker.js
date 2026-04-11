@@ -3,7 +3,7 @@
 let fastParser = null;
 
 try {
-  importScripts('https://cdn.jsdelivr.net/npm/fast-xml-parser@4.5.0/src/fxp.min.js');
+  importScripts('../lib/fxp.min.js');
   if (self.FXP && self.FXP.XMLParser) {
     fastParser = new self.FXP.XMLParser({
       ignoreAttributes: false,
