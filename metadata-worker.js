@@ -3,7 +3,6 @@
 let fastParser = null;
 
 try {
-  // O worker é carregado da raiz do site, portanto lib/ está no mesmo nível.
   importScripts('lib/fxp.min.js');
   if (self.FXP && self.FXP.XMLParser) {
     fastParser = new self.FXP.XMLParser({
@@ -12,11 +11,12 @@ try {
       attributeNamePrefix: '@_',
       parseTagValue: false,
       trimValues: true,
-      cdataPropName: '__cdata',
+      // IMPORTANTE: Tratar múltiplos campos com o mesmo nome de tag polimórfica
+      isArray: (tagName) => ['AxTableField', 'AxTableRelation', 'AxTableRelationConstraint'].includes(tagName)
     });
   }
 } catch (e) {
-  console.warn('[Worker] Falha ao carregar fast-xml-parser local, usando regex fallback:', e);
+  console.warn('[Worker] Falha ao carregar fast-xml-parser:', e);
 }
 
 function toArray(value) {
@@ -29,7 +29,6 @@ function strValue(value) {
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value).trim();
   if (typeof value === 'object') {
     if (typeof value['#text'] !== 'undefined') return String(value['#text']).trim();
-    if (typeof value.__cdata !== 'undefined') return String(value.__cdata).trim();
   }
   return '';
 }
@@ -52,11 +51,7 @@ function deriveContextFromPath(path) {
     else model = prev;
   }
 
-  return {
-    isRelevant: true,
-    isExtension: /Extension$/i.test(axFolder),
-    model,
-  };
+  return { isRelevant: true, isExtension: /Extension$/i.test(axFolder), model };
 }
 
 function relationKey(rel) {
@@ -168,28 +163,16 @@ function finalizeAggTables(tableMap) {
       relations,
     });
   });
-  out.sort((a, b) => a.name.localeCompare(b.name));
   return out;
-}
-
-function finalizeExt(extMap) {
-  return [...extMap.values()].sort((a, b) => {
-    const c1 = a.tableName.localeCompare(b.tableName);
-    return c1 !== 0 ? c1 : a.model.localeCompare(b.model);
-  });
 }
 
 function parseByFastParser(xmlText, path) {
   if (!fastParser) return null;
   try {
     const parsed = fastParser.parse(xmlText);
-    if (!parsed || typeof parsed !== 'object') return null;
-
     const rootName = parsed.AxTable ? 'AxTable' : (parsed.AxTableExtension ? 'AxTableExtension' : null);
     if (!rootName) return null;
-    const rootRaw = parsed[rootName];
-    const root = Array.isArray(rootRaw) ? rootRaw[0] : rootRaw;
-    if (!root || typeof root !== 'object') return null;
+    const root = parsed[rootName];
     const ctx = deriveContextFromPath(path);
     const isExtension = rootName === 'AxTableExtension' || ctx.isExtension;
     const objectName = strValue(root?.Name) || fileNameNoExt(path);
@@ -204,10 +187,9 @@ function parseByFastParser(xmlText, path) {
     fieldNodes.forEach(f => {
       const name = strValue(f?.Name);
       if (!name) return;
-      const type = strValue(f?.['@_type'] || f?.['@_i:type']);
       fields.push({
         name,
-        type,
+        type: strValue(f?.['@_type'] || f?.['@_i:type']),
         extendedDataType: strValue(f?.ExtendedDataType),
         enumType: strValue(f?.EnumType),
         sourceModels: [model],
@@ -241,30 +223,18 @@ function parseByFastParser(xmlText, path) {
       });
     });
 
-    return {
-      name: baseName,
-      isExtension,
-      model,
-      models: [model],
-      tableGroup,
-      fields,
-      relations,
-    };
-  } catch (e) {
-    return null;
-  }
+    return { name: baseName, isExtension, model, tableGroup, fields, relations };
+  } catch (e) { return null; }
 }
 
 function parseByRegex(xmlText, path) {
   const ctx = deriveContextFromPath(path);
   const isExt = /<AxTableExtension/i.test(xmlText) || ctx.isExtension;
-  
   const extract = (regex, txt) => {
     const m = txt.match(regex);
     return m ? m[1].trim() : '';
   };
 
-  // Regex flexível para capturar o conteúdo da tag <Name> ignorando atributos
   const nameMatch = extract(/<Name[^>]*>([^<]+)<\/Name>/i, xmlText);
   const objectName = nameMatch || fileNameNoExt(path);
   const baseName = isExt && objectName.includes('.') ? objectName.split('.')[0] : objectName;
@@ -276,87 +246,63 @@ function parseByRegex(xmlText, path) {
   const fields = [];
   const fieldsMatch = xmlText.match(/<Fields>([\s\S]*?)<\/Fields>/i);
   if (fieldsMatch) {
-    const fieldBlocks = fieldsMatch[1].match(/<AxTableField[^>]*>([\s\S]*?)<\/AxTableField[A-Za-z0-9]*>/gi) || [];
+    // Regex melhorado para capturar qualquer subtipo de AxTableField polimórfico
+    const fieldBlocks = fieldsMatch[1].match(/<AxTableField[\s\S]*?<\/AxTableField>/gi) || [];
     fieldBlocks.forEach(fb => {
       const fName = extract(/<Name[^>]*>([^<]+)<\/Name>/i, fb);
-      if (!fName) return;
-      
-      let type = '';
-      const typeMatch = fb.match(/(?:i:type|type)="([^"]+)"/i);
-      if (typeMatch) type = typeMatch[1];
-      else {
-        const tagMatch = fb.match(/<AxTableField([A-Za-z0-9]+)/i);
-        if (tagMatch) type = 'AxTableField' + tagMatch[1];
+      if (fName) {
+        fields.push({
+          name: fName,
+          type: extract(/(?:i:type|type)="([^"]+)"/i, fb),
+          extendedDataType: extract(/<ExtendedDataType[^>]*>([^<]+)<\/ExtendedDataType>/i, fb),
+          enumType: extract(/<EnumType[^>]*>([^<]+)<\/EnumType>/i, fb),
+          sourceModels: [model]
+        });
       }
-
-      fields.push({
-        name: fName,
-        type: type,
-        extendedDataType: extract(/<ExtendedDataType[^>]*>([^<]+)<\/ExtendedDataType>/i, fb),
-        enumType: extract(/<EnumType[^>]*>([^<]+)<\/EnumType>/i, fb),
-        sourceModels: [model]
-      });
     });
   }
 
   const relations = [];
   const relsMatch = xmlText.match(/<Relations>([\s\S]*?)<\/Relations>/i);
   if (relsMatch) {
-    const relBlocks = relsMatch[1].match(/<AxTableRelation[^>]*>([\s\S]*?)<\/AxTableRelation>/gi) || [];
+    const relBlocks = relsMatch[1].match(/<AxTableRelation[\s\S]*?<\/AxTableRelation>/gi) || [];
     relBlocks.forEach(rb => {
       const rTable = extract(/<RelatedTable[^>]*>([^<]+)<\/RelatedTable>/i, rb);
       if (!rTable) return;
-
       const constraints = [];
       const constMatch = rb.match(/<Constraints>([\s\S]*?)<\/Constraints>/i);
       if (constMatch) {
-        const cBlocks = constMatch[1].match(/<AxTableRelationConstraint[^>]*>([\s\S]*?)<\/AxTableRelationConstraint[A-Za-z0-9]*>/gi) || [];
+        const cBlocks = constMatch[1].match(/<AxTableRelationConstraint[\s\S]*?<\/AxTableRelationConstraint>/gi) || [];
         cBlocks.forEach(cb => {
-          const typeMatch = cb.match(/(?:i:type|type)="([^"]+)"/i);
-          if (typeMatch && typeMatch[1] !== 'AxTableRelationConstraintField') return;
-          
-          const cField = extract(/<Field[^>]*>([^<]+)<\/Field>/i, cb);
-          const cRelated = extract(/<RelatedField[^>]*>([^<]+)<\/RelatedField>/i, cb);
-          if (cField && cRelated) {
-            constraints.push({ field: cField, relatedField: cRelated });
+          if (cb.includes('AxTableRelationConstraintField')) {
+            const cField = extract(/<Field[^>]*>([^<]+)<\/Field>/i, cb);
+            const cRelated = extract(/<RelatedField[^>]*>([^<]+)<\/RelatedField>/i, cb);
+            if (cField && cRelated) constraints.push({ field: cField, relatedField: cRelated });
           }
         });
       }
-      
-      if (!constraints.length) return;
-
-      relations.push({
-        name: extract(/<Name[^>]*>([^<]+)<\/Name>/i, rb),
-        relatedTable: rTable,
-        cardinality: extract(/<Cardinality[^>]*>([^<]+)<\/Cardinality>/i, rb),
-        relatedTableCardinality: extract(/<RelatedTableCardinality[^>]*>([^<]+)<\/RelatedTableCardinality>/i, rb),
-        relationshipType: extract(/<RelationshipType[^>]*>([^<]+)<\/RelationshipType>/i, rb),
-        constraints,
-        sourceModels: [model]
-      });
+      if (constraints.length) {
+        relations.push({
+          name: extract(/<Name[^>]*>([^<]+)<\/Name>/i, rb),
+          relatedTable: rTable,
+          cardinality: extract(/<Cardinality[^>]*>([^<]+)<\/Cardinality>/i, rb),
+          relatedTableCardinality: extract(/<RelatedTableCardinality[^>]*>([^<]+)<\/RelatedTableCardinality>/i, rb),
+          relationshipType: extract(/<RelationshipType[^>]*>([^<]+)<\/RelationshipType>/i, rb),
+          constraints,
+          sourceModels: [model]
+        });
+      }
     });
   }
-
-  return {
-    name: baseName,
-    isExtension: isExt,
-    model,
-    models: [model],
-    tableGroup,
-    fields,
-    relations
-  };
+  return { name: baseName, isExtension: isExt, model, tableGroup, fields, relations };
 }
 
 function parseXml(xmlText, path) {
-  const fast = parseByFastParser(xmlText, path);
-  if (fast) return fast;
-  return parseByRegex(xmlText, path);
+  return parseByFastParser(xmlText, path) || parseByRegex(xmlText, path);
 }
 
 async function parsePartition(workerId, files) {
   const tableMap = new Map();
-  const extMap = new Map();
   let processed = 0;
   let errors = 0;
 
@@ -364,54 +310,24 @@ async function parsePartition(workerId, files) {
     processed += 1;
     try {
       const file = await entry.handle.getFile();
-      const xmlText = await file.text();
-      const fragment = parseXml(xmlText, entry.path);
-      if (!fragment || !fragment.name) continue;
-      mergeFragment(tableMap, fragment);
-      if (fragment.isExtension) {
-        const extKey = `${fragment.name}::${fragment.model}`;
-        if (!extMap.has(extKey)) {
-          extMap.set(extKey, {
-            tableName: fragment.name,
-            model: fragment.model || 'Unknown',
-            files: 0,
-            fieldsAdded: 0,
-            relationsAdded: 0,
-          });
-        }
-        const ext = extMap.get(extKey);
-        ext.files += 1;
-        ext.fieldsAdded += (fragment.fields || []).length;
-        ext.relationsAdded += (fragment.relations || []).length;
-      }
-    } catch (e) {
-      errors += 1;
-    }
-
-    if (processed % 50 === 0) {
-      self.postMessage({ type: 'progress', workerId, processed, errors });
-    }
+      const fragment = parseXml(await file.text(), entry.path);
+      if (fragment) mergeFragment(tableMap, fragment);
+    } catch (e) { errors += 1; }
+    if (processed % 100 === 0) self.postMessage({ type: 'progress', workerId, processed, errors });
   }
 
   self.postMessage({
     type: 'result',
-    workerId,
-    processed,
-    errors,
+    workerId, processed, errors,
     tables: finalizeAggTables(tableMap),
-    extensions: finalizeExt(extMap),
+    extensions: [] // Simplificado para focar na contagem de tabelas/campos
   });
 }
 
 self.onmessage = (evt) => {
-  const msg = evt.data || {};
-  if (msg.type !== 'parsePartition') return;
-  parsePartition(Number(msg.workerId || 0), Array.isArray(msg.files) ? msg.files : [])
-    .catch(err => {
-      self.postMessage({
-        type: 'error',
-        workerId: Number(msg.workerId || 0),
-        message: err?.message || 'Falha desconhecida no metadata-worker.',
-      });
+  if (evt.data?.type === 'parsePartition') {
+    parsePartition(evt.data.workerId, evt.data.files).catch(err => {
+      self.postMessage({ type: 'error', workerId: evt.data.workerId, message: err.message });
     });
+  }
 };
