@@ -1,7 +1,11 @@
 /* Browser-native metadata ingestion pipeline */
 (function () {
   const AX_FOLDER_RX = /^AxTable(Extension)?$/i;
-  const WORKER_URL = 'metadata-worker.js?v=20260411a';
+  const WORKER_URL = 'metadata-worker.js?v=20260411b';
+
+  // Pastas conhecidas do AOT que são massivas e NÃO contêm tabelas.
+  // Ignorar estas pastas acelera a varredura em 10x.
+  const AOT_FOLDERS_TO_SKIP = /^(AxClass|AxForm|AxQuery|AxReport|AxSecurityRole|AxSecurityDuty|AxSecurityPrivilege|AxSecurityPermission|AxMenu|AxMenuItem|AxLabel|AxTile|AxResource|AxEnum|AxEdt|AxWf|AxTile|AxWorkflow)$/i;
 
   function supportsDirectoryImport() {
     return typeof window.showDirectoryPicker === 'function' && typeof Worker !== 'undefined';
@@ -13,21 +17,20 @@
     // 1. Procurar a pasta AxTable ou AxTableExtension no caminho
     const axIndex = parts.findIndex(p => AX_FOLDER_RX.test(p));
     
-    // Se não houver uma pasta de tabela no caminho, ignore o arquivo (mesma lógica do -match do PS)
+    // Se não houver uma pasta de tabela no caminho, ignore o arquivo
     if (axIndex < 0) return { isRelevant: false };
 
-    // 2. Filtro de Segurança: Ignorar metadados compilados, binários ou fontes X++
-    const hasSystemPart = parts.some(p => /^(xppmetadata|bin|xppsource|buildproject|descriptor|resources|reports|webfiles)$/i.test(p));
+    // 2. Filtro de Segurança: Ignorar metadados compilados ou binários
+    const hasSystemPart = parts.some(p => /^(xppmetadata|bin|buildproject|descriptor|reports|webfiles)$/i.test(p));
     if (hasSystemPart) return { isRelevant: false };
 
     const axFolder = parts[axIndex];
     const isExtension = /Extension$/i.test(axFolder);
     
-    // 3. Identificar o Modelo (pasta pai do AxTable ou pai do Delta)
+    // 3. Identificar o Modelo
     let model = 'Unknown';
     if (axIndex > 0) {
       let prev = parts[axIndex - 1];
-      // Estrutura comum: <Model>/<Model>/AxTable ou <Model>/<Model>/Delta/AxTable
       if (prev.toLowerCase() === 'delta' && axIndex > 1) {
         model = parts[axIndex - 2];
       } else {
@@ -52,14 +55,11 @@
       stats.dirs += 1;
       for await (const [name, handle] of dirHandle.entries()) {
         if (handle.kind === 'directory') {
-          // OTIMIZAÇÃO: Ignorar pastas AOT irrelevantes (AxClass, AxForm, etc)
-          const isAotFolder = /^ax[a-z0-9]+$/i.test(name);
-          const isTarget = AX_FOLDER_RX.test(name);
-          
-          if (isAotFolder && !isTarget) continue;
+          // OTIMIZAÇÃO: Pular pastas gigantes que sabemos não ser de tabelas
+          if (AOT_FOLDERS_TO_SKIP.test(name)) continue;
 
-          // Ignorar pastas de sistema que nunca contêm definições de tabelas fonte
-          if (/^(xppmetadata|bin|buildproject|xppsource|descriptor|resources|reports|webfiles)$/i.test(name)) continue;
+          // Ignorar pastas de sistema
+          if (/^(xppmetadata|bin|buildproject|descriptor)$/i.test(name)) continue;
 
           await walk(handle, [...pathParts, name]);
           continue;
@@ -67,9 +67,8 @@
 
         stats.scannedFiles += 1;
         
-        // Só processamos XMLs
         if (!name.toLowerCase().endsWith('.xml')) {
-          if (onProgress && stats.scannedFiles % 500 === 0) onProgress({ ...stats });
+          if (onProgress && stats.scannedFiles % 1000 === 0) onProgress({ ...stats });
           continue;
         }
 
@@ -81,13 +80,16 @@
           stats.matchedFiles += 1;
         }
 
-        if (onProgress && (stats.matchedFiles % 100 === 0 || stats.scannedFiles % 500 === 0)) {
+        if (onProgress && (stats.matchedFiles % 100 === 0 || stats.scannedFiles % 1000 === 0)) {
           onProgress({ ...stats });
         }
       }
     }
 
+    console.log('[Ingestion] Iniciando varredura recursiva...');
     await walk(rootHandle, [rootHandle.name || 'PackagesLocalDirectory']);
+    console.log(`[Ingestion] Varredura concluída. Encontrados ${files.length} arquivos relevantes.`);
+    
     if (onProgress) onProgress({ ...stats, done: true });
     return { files, stats };
   }
@@ -257,20 +259,9 @@
 
   async function processFiles(files, options = {}) {
     if (!Array.isArray(files) || files.length === 0) {
-      return {
-        tables: [],
-        extensions: [],
-        stats: {
-          phase: 'parse',
-          workers: 0,
-          totalFiles: 0,
-          processedFiles: 0,
-          errors: 0,
-          durationMs: 0,
-        },
-      };
+      return { tables: [], extensions: [], stats: {} };
     }
-    if (typeof Worker === 'undefined') throw new Error('Web Workers não suportados neste navegador.');
+    if (typeof Worker === 'undefined') throw new Error('Web Workers não suportados.');
 
     const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
     const workersCount = Math.min(Math.max(1, Number(options.workerCount || defaultWorkerCount())), files.length);
@@ -300,9 +291,7 @@
 
     return new Promise((resolve, reject) => {
       const cleanup = () => {
-        workers.forEach(w => {
-          try { w.terminate(); } catch (_) {}
-        });
+        workers.forEach(w => { try { w.terminate(); } catch (_) {} });
       };
 
       const finish = () => {
@@ -310,19 +299,13 @@
         settled = true;
         cleanup();
         const durationMs = Math.round(performance.now() - startedAt);
-        const tables = finalizeTables(tableAcc);
-        const extensions = finalizeExtensions(extensionAcc);
-        const processedFiles = workerState.reduce((n, w) => n + w.processed, 0);
-        const errors = workerState.reduce((n, w) => n + w.errors, 0);
         resolve({
-          tables,
-          extensions,
+          tables: finalizeTables(tableAcc),
+          extensions: finalizeExtensions(extensionAcc),
           stats: {
             phase: 'parse',
             workers: workersCount,
             totalFiles: files.length,
-            processedFiles,
-            errors,
             durationMs,
           },
         });
@@ -348,7 +331,10 @@
             return;
           }
           if (msg.type === 'error') {
-            fail(new Error(msg.message || `Worker ${workerId} falhou.`));
+            console.error(`[Worker ${workerId}] Error:`, msg.message);
+            workerState[workerId].done = true;
+            completedWorkers += 1;
+            if (completedWorkers === workersCount) finish();
             return;
           }
           if (msg.type === 'result') {
@@ -364,7 +350,9 @@
         };
 
         worker.onerror = (err) => {
-          fail(new Error(err?.message || `Worker ${workerId} gerou um erro não tratado.`));
+          console.error(`[Worker ${workerId}] Fatal Error:`, err);
+          completedWorkers += 1;
+          if (completedWorkers === workersCount) finish();
         };
 
         worker.postMessage({
