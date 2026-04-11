@@ -1,36 +1,16 @@
 /* Worker: parse D365FO AxTable/AxTableExtension XML partitions */
 
-let fastParser = null;
-
-try {
-  importScripts('lib/fxp.min.js');
-  if (self.FXP && self.FXP.XMLParser) {
-    fastParser = new self.FXP.XMLParser({
-      ignoreAttributes: false,
-      removeNSPrefix: true,
-      attributeNamePrefix: '@_',
-      parseTagValue: false,
-      trimValues: true,
-      // IMPORTANTE: Tratar múltiplos campos com o mesmo nome de tag polimórfica
-      isArray: (tagName) => ['AxTableField', 'AxTableRelation', 'AxTableRelationConstraint'].includes(tagName)
-    });
-  }
-} catch (e) {
-  console.warn('[Worker] Falha ao carregar fast-xml-parser:', e);
+// Utility: Extract value of a tag
+function extractTagValue(tag, xml) {
+  const rx = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
+  const m = xml.match(rx);
+  return m ? m[1].trim() : '';
 }
 
-function toArray(value) {
-  if (value === null || value === undefined) return [];
-  return Array.isArray(value) ? value : [value];
-}
-
-function strValue(value) {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value).trim();
-  if (typeof value === 'object') {
-    if (typeof value['#text'] !== 'undefined') return String(value['#text']).trim();
-  }
-  return '';
+// Utility: Clean CDATA and inner tags
+function cleanValue(val) {
+  if (!val) return '';
+  return val.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/<[^>]+>/g, '').trim();
 }
 
 function fileNameNoExt(path) {
@@ -51,7 +31,11 @@ function deriveContextFromPath(path) {
     else model = prev;
   }
 
-  return { isRelevant: true, isExtension: /Extension$/i.test(axFolder), model };
+  return {
+    isRelevant: true,
+    isExtension: /Extension$/i.test(axFolder),
+    model,
+  };
 }
 
 function relationKey(rel) {
@@ -110,6 +94,7 @@ function mergeFragment(tableMap, fragment) {
       table._fieldByName.set(k, copy);
       return;
     }
+    // Update missing types if extension has more info (unlikely but safe)
     if (!existing.type && field.type) existing.type = String(field.type);
     if (!existing.extendedDataType && field.extendedDataType) existing.extendedDataType = String(field.extendedDataType);
     if (!existing.enumType && field.enumType) existing.enumType = String(field.enumType);
@@ -127,12 +112,7 @@ function mergeFragment(tableMap, fragment) {
         cardinality: String(rel?.cardinality || ''),
         relatedTableCardinality: String(rel?.relatedTableCardinality || ''),
         relationshipType: String(rel?.relationshipType || ''),
-        constraints: Array.isArray(rel?.constraints)
-          ? rel.constraints.map(c => ({
-              field: String(c?.field || ''),
-              relatedField: String(c?.relatedField || ''),
-            })).filter(c => c.field && c.relatedField)
-          : [],
+        constraints: Array.isArray(rel?.constraints) ? rel.constraints : [],
         sourceModels: [],
       };
       mergeSourceModels(copy, rel, model);
@@ -163,142 +143,89 @@ function finalizeAggTables(tableMap) {
       relations,
     });
   });
+  out.sort((a, b) => a.name.localeCompare(b.name));
   return out;
 }
 
-function parseByFastParser(xmlText, path) {
-  if (!fastParser) return null;
-  try {
-    const parsed = fastParser.parse(xmlText);
-    const rootName = parsed.AxTable ? 'AxTable' : (parsed.AxTableExtension ? 'AxTableExtension' : null);
-    if (!rootName) return null;
-    const root = parsed[rootName];
-    const ctx = deriveContextFromPath(path);
-    const isExtension = rootName === 'AxTableExtension' || ctx.isExtension;
-    const objectName = strValue(root?.Name) || fileNameNoExt(path);
-    const baseName = isExtension && objectName.includes('.') ? objectName.split('.')[0] : objectName;
-    if (!baseName) return null;
-
-    const model = ctx.model || 'Unknown';
-    const tableGroup = !isExtension ? (strValue(root?.TableGroup) || 'None') : 'None';
-
-    const fields = [];
-    const fieldNodes = toArray(root?.Fields?.AxTableField);
-    fieldNodes.forEach(f => {
-      const name = strValue(f?.Name);
-      if (!name) return;
-      fields.push({
-        name,
-        type: strValue(f?.['@_type'] || f?.['@_i:type']),
-        extendedDataType: strValue(f?.ExtendedDataType),
-        enumType: strValue(f?.EnumType),
-        sourceModels: [model],
-      });
-    });
-
-    const relations = [];
-    const relNodes = toArray(root?.Relations?.AxTableRelation);
-    relNodes.forEach(r => {
-      const relatedTable = strValue(r?.RelatedTable);
-      if (!relatedTable) return;
-      const constraints = toArray(r?.Constraints?.AxTableRelationConstraint)
-        .filter(c => {
-          const cType = strValue(c?.['@_type'] || c?.['@_i:type']);
-          return !cType || cType === 'AxTableRelationConstraintField';
-        })
-        .map(c => ({
-          field: strValue(c?.Field),
-          relatedField: strValue(c?.RelatedField),
-        }))
-        .filter(c => c.field && c.relatedField);
-      if (!constraints.length) return;
-      relations.push({
-        name: strValue(r?.Name),
-        relatedTable,
-        cardinality: strValue(r?.Cardinality),
-        relatedTableCardinality: strValue(r?.RelatedTableCardinality),
-        relationshipType: strValue(r?.RelationshipType),
-        constraints,
-        sourceModels: [model],
-      });
-    });
-
-    return { name: baseName, isExtension, model, tableGroup, fields, relations };
-  } catch (e) { return null; }
-}
-
+// ── REGEX-BASED PARSER (Primary & Reliable) ────────────────────────
 function parseByRegex(xmlText, path) {
   const ctx = deriveContextFromPath(path);
   const isExt = /<AxTableExtension/i.test(xmlText) || ctx.isExtension;
-  const extract = (regex, txt) => {
-    const m = txt.match(regex);
-    return m ? m[1].trim() : '';
-  };
-
-  const nameMatch = extract(/<Name[^>]*>([^<]+)<\/Name>/i, xmlText);
-  const objectName = nameMatch || fileNameNoExt(path);
+  
+  // 1. Object Name
+  const nameMatch = xmlText.match(/<Name[^>]*>([\s\S]*?)<\/Name>/i);
+  const objectName = nameMatch ? cleanValue(nameMatch[1]) : fileNameNoExt(path);
   const baseName = isExt && objectName.includes('.') ? objectName.split('.')[0] : objectName;
   if (!baseName) return null;
 
   const model = ctx.model || 'Unknown';
-  const tableGroup = !isExt ? (extract(/<TableGroup[^>]*>([^<]+)<\/TableGroup>/i, xmlText) || 'None') : 'None';
+  const tableGroup = !isExt ? (extractTagValue('TableGroup', xmlText) || 'None') : 'None';
 
-  const fields = [];
-  const fieldsMatch = xmlText.match(/<Fields>([\s\S]*?)<\/Fields>/i);
-  if (fieldsMatch) {
-    // Regex melhorado para capturar qualquer subtipo de AxTableField polimórfico
-    const fieldBlocks = fieldsMatch[1].match(/<AxTableField[\s\S]*?<\/AxTableField>/gi) || [];
-    fieldBlocks.forEach(fb => {
-      const fName = extract(/<Name[^>]*>([^<]+)<\/Name>/i, fb);
-      if (fName) {
-        fields.push({
-          name: fName,
-          type: extract(/(?:i:type|type)="([^"]+)"/i, fb),
-          extendedDataType: extract(/<ExtendedDataType[^>]*>([^<]+)<\/ExtendedDataType>/i, fb),
-          enumType: extract(/<EnumType[^>]*>([^<]+)<\/EnumType>/i, fb),
-          sourceModels: [model]
-        });
+  // 2. Extract Fields (GLOBAL SEARCH)
+  // Use negative lookahead to avoid AxTableFieldGroup and AxTableFieldGroupField
+  const fieldBlocks = xmlText.match(/<AxTableField(?!\w)[\s\S]*?<\/AxTableField>/gi) || [];
+  const fields = fieldBlocks.map(fb => {
+    const fNameMatch = fb.match(/<Name[^>]*>([\s\S]*?)<\/Name>/i);
+    const fName = fNameMatch ? cleanValue(fNameMatch[1]) : '';
+    if (!fName) return null;
+
+    // Type is usually in the i:type attribute of AxTableField
+    const typeMatch = fb.match(/(?:i:type|type)="([^"]+)"/i);
+    let type = typeMatch ? typeMatch[1] : '';
+    if (!type) {
+       // Fallback: try to see if it's a specific tag like <AxTableFieldString> (rare in modern versions but possible in older)
+       const tagMatch = fb.match(/<AxTableField(\w+)/i);
+       if (tagMatch && tagMatch[1]) type = 'AxTableField' + tagMatch[1];
+    }
+
+    return {
+      name: fName,
+      type: type,
+      extendedDataType: extractTagValue('ExtendedDataType', fb),
+      enumType: extractTagValue('EnumType', fb),
+      sourceModels: [model]
+    };
+  }).filter(Boolean);
+
+  // 3. Extract Relations (GLOBAL SEARCH)
+  // Avoid AxTableRelationConstraint
+  const relBlocks = xmlText.match(/<AxTableRelation(?!\w)[\s\S]*?<\/AxTableRelation>/gi) || [];
+  const relations = relBlocks.map(rb => {
+    const relTable = extractTagValue('RelatedTable', rb);
+    if (!relTable) return null;
+
+    const constraints = [];
+    const constBlocks = rb.match(/<AxTableRelationConstraint(?!\w)[\s\S]*?<\/AxTableRelationConstraint>/gi) || [];
+    constBlocks.forEach(cb => {
+      // Only Field-to-Field constraints for now (most common and useful for queries)
+      if (cb.includes('AxTableRelationConstraintField')) {
+        const f = extractTagValue('Field', cb);
+        const rf = extractTagValue('RelatedField', cb);
+        if (f && rf) constraints.push({ field: f, relatedField: rf });
       }
     });
-  }
 
-  const relations = [];
-  const relsMatch = xmlText.match(/<Relations>([\s\S]*?)<\/Relations>/i);
-  if (relsMatch) {
-    const relBlocks = relsMatch[1].match(/<AxTableRelation[\s\S]*?<\/AxTableRelation>/gi) || [];
-    relBlocks.forEach(rb => {
-      const rTable = extract(/<RelatedTable[^>]*>([^<]+)<\/RelatedTable>/i, rb);
-      if (!rTable) return;
-      const constraints = [];
-      const constMatch = rb.match(/<Constraints>([\s\S]*?)<\/Constraints>/i);
-      if (constMatch) {
-        const cBlocks = constMatch[1].match(/<AxTableRelationConstraint[\s\S]*?<\/AxTableRelationConstraint>/gi) || [];
-        cBlocks.forEach(cb => {
-          if (cb.includes('AxTableRelationConstraintField')) {
-            const cField = extract(/<Field[^>]*>([^<]+)<\/Field>/i, cb);
-            const cRelated = extract(/<RelatedField[^>]*>([^<]+)<\/RelatedField>/i, cb);
-            if (cField && cRelated) constraints.push({ field: cField, relatedField: cRelated });
-          }
-        });
-      }
-      if (constraints.length) {
-        relations.push({
-          name: extract(/<Name[^>]*>([^<]+)<\/Name>/i, rb),
-          relatedTable: rTable,
-          cardinality: extract(/<Cardinality[^>]*>([^<]+)<\/Cardinality>/i, rb),
-          relatedTableCardinality: extract(/<RelatedTableCardinality[^>]*>([^<]+)<\/RelatedTableCardinality>/i, rb),
-          relationshipType: extract(/<RelationshipType[^>]*>([^<]+)<\/RelationshipType>/i, rb),
-          constraints,
-          sourceModels: [model]
-        });
-      }
-    });
-  }
-  return { name: baseName, isExtension: isExt, model, tableGroup, fields, relations };
-}
+    if (constraints.length === 0) return null;
 
-function parseXml(xmlText, path) {
-  return parseByFastParser(xmlText, path) || parseByRegex(xmlText, path);
+    return {
+      name: extractTagValue('Name', rb),
+      relatedTable: relTable,
+      cardinality: extractTagValue('Cardinality', rb),
+      relatedTableCardinality: extractTagValue('RelatedTableCardinality', rb),
+      relationshipType: extractTagValue('RelationshipType', rb),
+      constraints,
+      sourceModels: [model]
+    };
+  }).filter(Boolean);
+
+  return {
+    name: baseName,
+    isExtension: isExt,
+    model,
+    tableGroup,
+    fields,
+    relations
+  };
 }
 
 async function parsePartition(workerId, files) {
@@ -310,24 +237,37 @@ async function parsePartition(workerId, files) {
     processed += 1;
     try {
       const file = await entry.handle.getFile();
-      const fragment = parseXml(await file.text(), entry.path);
+      const xmlText = await file.text();
+      const fragment = parseByRegex(xmlText, entry.path);
       if (fragment) mergeFragment(tableMap, fragment);
-    } catch (e) { errors += 1; }
-    if (processed % 100 === 0) self.postMessage({ type: 'progress', workerId, processed, errors });
+    } catch (e) {
+      errors += 1;
+    }
+
+    if (processed % 50 === 0) {
+      self.postMessage({ type: 'progress', workerId, processed, errors });
+    }
   }
 
   self.postMessage({
     type: 'result',
-    workerId, processed, errors,
+    workerId,
+    processed,
+    errors,
     tables: finalizeAggTables(tableMap),
-    extensions: [] // Simplificado para focar na contagem de tabelas/campos
+    extensions: [] 
   });
 }
 
 self.onmessage = (evt) => {
-  if (evt.data?.type === 'parsePartition') {
-    parsePartition(evt.data.workerId, evt.data.files).catch(err => {
-      self.postMessage({ type: 'error', workerId: evt.data.workerId, message: err.message });
+  const msg = evt.data || {};
+  if (msg.type !== 'parsePartition') return;
+  parsePartition(Number(msg.workerId || 0), Array.isArray(msg.files) ? msg.files : [])
+    .catch(err => {
+      self.postMessage({
+        type: 'error',
+        workerId: Number(msg.workerId || 0),
+        message: err?.message || 'Falha no metadata-worker.',
+      });
     });
-  }
 };

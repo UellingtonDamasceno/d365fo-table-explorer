@@ -1,11 +1,12 @@
 /* Browser-native metadata ingestion pipeline */
 (function () {
   const AX_FOLDER_RX = /^AxTable(Extension)?$/i;
-  const WORKER_URL = 'metadata-worker.js?v=20260411b';
+  const WORKER_URL = 'metadata-worker.js?v=20260411e';
 
-  // Pastas conhecidas do AOT que são massivas e NÃO contêm tabelas.
-  // Ignorar estas pastas acelera a varredura em 10x.
-  const AOT_FOLDERS_TO_SKIP = /^(AxClass|AxForm|AxQuery|AxReport|AxSecurityRole|AxSecurityDuty|AxSecurityPrivilege|AxSecurityPermission|AxMenu|AxMenuItem|AxLabel|AxTile|AxResource|AxEnum|AxEdt|AxWf|AxTile|AxWorkflow)$/i;
+  // Pastas de objetos do AOT que são massivas e NÃO contêm tabelas.
+  // Pular estas pastas é o que garante a performance sem perder dados.
+  // IMPORTANTE: Não pular pastas de modelos legítimos.
+  const FOLDERS_TO_IGNORE = /^(AxClass|AxForm|AxQuery|AxReport|AxSecurityRole|AxSecurityDuty|AxSecurityPrivilege|AxSecurityPermission|AxMenu|AxMenuItem|AxLabel|AxTile|AxResource|AxEnum|AxEdt|AxWf|AxWorkflow|AxActionPane|AxFormExtension|bin|xppmetadata|descriptor|reports|resources|webfiles|buildproject)$/i;
 
   function supportsDirectoryImport() {
     return typeof window.showDirectoryPicker === 'function' && typeof Worker !== 'undefined';
@@ -14,36 +15,26 @@
   function deriveContextFromPath(path) {
     const parts = String(path || '').split(/[\\/]+/).filter(Boolean);
     
-    // 1. Procurar a pasta AxTable ou AxTableExtension no caminho
+    // Simula o -match "\\AxTable\\" do PowerShell
     const axIndex = parts.findIndex(p => AX_FOLDER_RX.test(p));
-    
-    // Se não houver uma pasta de tabela no caminho, ignore o arquivo
     if (axIndex < 0) return { isRelevant: false };
 
-    // 2. Filtro de Segurança: Ignorar metadados compilados ou binários
-    const hasSystemPart = parts.some(p => /^(xppmetadata|bin|buildproject|descriptor|reports|webfiles)$/i.test(p));
-    if (hasSystemPart) return { isRelevant: false };
+    // Bloqueio de pastas de sistema/compilação (bin, XppMetadata)
+    const isSystem = parts.some(p => /^(bin|xppmetadata|buildproject)$/i.test(p));
+    if (isSystem) return { isRelevant: false };
 
     const axFolder = parts[axIndex];
     const isExtension = /Extension$/i.test(axFolder);
     
-    // 3. Identificar o Modelo
+    // Identificar o modelo
     let model = 'Unknown';
     if (axIndex > 0) {
       let prev = parts[axIndex - 1];
-      if (prev.toLowerCase() === 'delta' && axIndex > 1) {
-        model = parts[axIndex - 2];
-      } else {
-        model = prev;
-      }
+      if (prev.toLowerCase() === 'delta' && axIndex > 1) model = parts[axIndex - 2];
+      else model = prev;
     }
 
-    return {
-      isRelevant: true,
-      isExtension,
-      model,
-      axFolder,
-    };
+    return { isRelevant: true, isExtension, model };
   }
 
   async function collectXmlFiles(rootHandle, options = {}) {
@@ -55,11 +46,8 @@
       stats.dirs += 1;
       for await (const [name, handle] of dirHandle.entries()) {
         if (handle.kind === 'directory') {
-          // OTIMIZAÇÃO: Pular pastas gigantes que sabemos não ser de tabelas
-          if (AOT_FOLDERS_TO_SKIP.test(name)) continue;
-
-          // Ignorar pastas de sistema
-          if (/^(xppmetadata|bin|buildproject|descriptor)$/i.test(name)) continue;
+          // Se for uma pasta que sabemos não ter tabelas, pula a árvore inteira
+          if (FOLDERS_TO_IGNORE.test(name)) continue;
 
           await walk(handle, [...pathParts, name]);
           continue;
@@ -86,10 +74,7 @@
       }
     }
 
-    console.log('[Ingestion] Iniciando varredura recursiva...');
     await walk(rootHandle, [rootHandle.name || 'PackagesLocalDirectory']);
-    console.log(`[Ingestion] Varredura concluída. Encontrados ${files.length} arquivos relevantes.`);
-    
     if (onProgress) onProgress({ ...stats, done: true });
     return { files, stats };
   }
