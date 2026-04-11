@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>D365FO Table Explorer</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Cytoscape.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+  <!-- Dexie (IndexedDB wrapper) -->
+  <script src="https://cdn.jsdelivr.net/npm/dexie@4.0.10/dist/dexie.min.js"></script>
+</head>
+<body>
+
+  <!-- ===== LOADING OVERLAY ===== -->
+  <div id="loading-overlay" class="overlay">
+    <div class="loader-box">
+      <div class="spinner"></div>
+      <h2>D365FO Table Explorer</h2>
+      <p id="loading-msg">Carregando metadados do banco local...</p>
+      <div id="file-input-area" class="hidden">
+        <p class="hint">
+          Nenhum dado encontrado no banco local.<br />
+          Selecione a pasta <code>PackagesLocalDirectory</code> do seu ambiente D365FO para iniciar a ingestão.
+        </p>
+        <button class="btn btn-primary" id="pick-directory-btn">📁 Selecionar PackagesLocalDirectory</button>
+        <div id="ingestion-progress" class="ingestion-progress hidden">
+          <div class="ingestion-progress-header">
+            <span id="ingestion-status-text">Iniciando...</span>
+            <span id="ingestion-percent">0%</span>
+          </div>
+          <div class="ingestion-progress-bar">
+            <div id="ingestion-progress-fill" class="ingestion-progress-fill"></div>
+          </div>
+          <div id="ingestion-progress-details" class="ingestion-progress-text"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== APP SHELL ===== -->
+  <div id="app" class="hidden">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="header-brand">
+        <span class="brand-icon">🗄️</span>
+        <span class="brand-name">D365FO Table Explorer</span>
+        <span id="total-count" class="pill">0</span>
+      </div>
+
+      <div class="header-center">
+        <button class="btn btn-outline btn-sm" id="clear-graph-btn" title="Limpar todos os nós do grafo"><span class="btn-icon">🗑</span><span class="btn-text">Limpar</span></button>
+        <button class="btn btn-outline btn-sm" id="fit-graph-btn" title="Ajustar visualização"><span class="btn-icon">⊞</span><span class="btn-text">Ajustar</span></button>
+        <button class="btn btn-outline btn-sm" id="toggle-labels-btn" title="Alternar labels das arestas"><span class="btn-icon">🏷</span><span class="btn-text">Labels</span></button>
+        <select id="layout-select" class="region-select" title="Algoritmo de layout do grafo">
+          <option value="cose">Layout: Cose</option>
+          <option value="circle">Layout: Circular</option>
+          <option value="breadthfirst">Layout: Árvore</option>
+          <option value="grid">Layout: Grade</option>
+          <option value="concentric">Layout: Concêntrico</option>
+        </select>
+      </div>
+
+      <div class="header-actions">
+        <span id="graph-node-count" class="graph-count-badge hidden"></span>
+        <button class="btn btn-outline btn-sm" id="open-dashboard-btn" title="Análise de metadados"><span class="btn-icon">📊</span><span class="btn-text">Análise</span></button>
+        <button class="btn btn-outline btn-sm" id="open-settings-btn" title="Configurações"><span class="btn-icon">⚙️</span><span class="btn-text">Config</span></button>
+        <button class="btn btn-outline btn-sm" id="shortcuts-help-btn" title="Ver atalhos de teclado"><span class="btn-icon">⌨</span><span class="btn-text">Atalhos</span></button>
+        <button class="btn btn-outline btn-sm" id="undo-btn" title="Desfazer última ação" disabled><span class="btn-icon">↩</span><span class="btn-text">Desfazer</span></button>
+        <button class="btn btn-outline btn-sm" id="export-graph-btn" title="Exportar estado do grafo"><span class="btn-icon">💾</span><span class="btn-text">Exportar</span></button>
+        <button class="btn btn-outline btn-sm" id="import-graph-btn" title="Importar estado do grafo"><span class="btn-icon">📤</span><span class="btn-text">Importar</span></button>
+        <input type="file" id="import-graph-input" accept=".json" style="display:none" />
+        <button class="btn btn-primary btn-sm" id="import-directory-btn" title="Atualizar metadados (Re-scan)"><span class="btn-icon">🧭</span><span class="btn-text">Atualizar Metadados</span></button>
+      </div>
+      <button class="btn btn-outline btn-sm header-menu-toggle" id="header-menu-toggle" title="Abrir ações">☰</button>
+    </header>
+
+    <!-- Main layout -->
+    <div class="layout">
+
+      <!-- ===== SIDEBAR ===== -->
+      <aside class="sidebar">
+        <div class="panel-toggle-row">
+          <span class="panel-toggle-title">Painel</span>
+          <button class="btn btn-ghost btn-sm panel-toggle-btn" id="toggle-sidebar-btn" title="Minimizar sidebar">◀</button>
+        </div>
+
+        <!-- Search -->
+        <div class="sidebar-search">
+          <div class="search-wrap">
+            <span class="search-icon">🔍</span>
+            <input id="search-input" type="search" placeholder="Filtrar tabelas..." autocomplete="off" />
+            <button id="clear-btn" class="clear-btn hidden" title="Limpar busca">✕</button>
+          </div>
+          <div id="search-info" class="search-info"></div>
+          <div class="sidebar-filter-row">
+            <select id="group-filter" class="region-select">
+              <option value="">Todos os grupos</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" id="sort-toggle">A→Z</button>
+          </div>
+        </div>
+
+        <!-- Table list -->
+        <div class="sidebar-group flex-fill">
+          <div class="group-header">
+            <span>📋 Tabelas</span>
+            <span id="list-count" class="count-badge">0</span>
+          </div>
+          <div id="vscroll-container" class="vscroll-container">
+            <div id="vscroll-inner" class="vscroll-inner"></div>
+          </div>
+          <div id="list-status" class="list-status"></div>
+        </div>
+
+        <!-- Pathfinding panel -->
+        <div class="path-panel">
+          <div class="group-header">
+            <span>🔀 Caminho mais curto</span>
+          </div>
+          <div class="path-controls">
+            <label class="path-option"><input type="checkbox" id="strict-direction-inline" /> Usar direção estrita</label>
+            <input id="path-from" type="text" class="path-input" placeholder="Tabela origem..." autocomplete="off" list="path-from-list" />
+            <datalist id="path-from-list"></datalist>
+            <input id="path-to" type="text" class="path-input" placeholder="Tabela destino..." autocomplete="off" list="path-to-list" />
+            <datalist id="path-to-list"></datalist>
+            <div id="waypoints-container"></div>
+            <datalist id="waypoints-datalist"></datalist>
+            <button class="btn btn-ghost btn-sm" id="add-waypoint-btn" title="Adicionar ponto intermediário">＋ Via</button>
+            <button class="btn btn-primary btn-sm" id="find-path-btn">🔍 Encontrar Caminho</button>
+            <button class="btn btn-ghost btn-sm" id="find-alt-routes-btn">🔀 Ver rotas alternativas</button>
+          </div>
+          <div id="shift-path-display" class="shift-path-display hidden">
+            <span id="shift-path-badge" class="shift-path-badge"></span>
+            <button class="btn btn-ghost btn-sm" id="clear-shift-path-btn">✕ Limpar</button>
+          </div>
+          <div id="path-result" class="path-result hidden"></div>
+        </div>
+
+      </aside>
+
+      <!-- Resize handle -->
+      <div class="resize-handle" id="sidebar-resizer" title="Arrastar para redimensionar"></div>
+
+      <!-- ===== GRAPH + DETAIL ===== -->
+      <main class="main-area">
+
+        <!-- Graph container -->
+        <div id="graph-container" class="graph-container">
+
+          <!-- Welcome screen (shown when graph is empty) -->
+          <div id="graph-welcome" class="graph-welcome">
+            <div class="welcome-icon">🗄️</div>
+            <h2>D365FO Table Explorer</h2>
+            <p>Clique em uma tabela na sidebar para adicioná-la ao grafo.</p>
+            <p class="hint-small">Dê duplo clique em um nó para expandir todas as relações de 1º nível.</p>
+            <div class="feature-grid">
+              <div class="feature">🔍 Buscar por nome e grupo</div>
+              <div class="feature">🖱 Arrastar e reorganizar nós</div>
+              <div class="feature">🔀 Caminho mais curto (BFS)</div>
+              <div class="feature">💻 Gerar SQL e X++ queries</div>
+              <div class="feature">📋 Ver campos e relações</div>
+              <div class="feature">🎨 Cores por TableGroup</div>
+            </div>
+          </div>
+
+          <!-- Cytoscape canvas -->
+          <div id="cy"></div>
+
+          <!-- Canvas node search (US P3 1.2) -->
+          <div class="canvas-search-wrap" id="canvas-search-wrap">
+            <span class="canvas-search-icon">🔍</span>
+            <input id="canvas-search-input" type="text" placeholder="Buscar nó no canvas..." autocomplete="off" />
+            <button id="canvas-search-clear" class="canvas-search-clear-btn hidden" title="Limpar">✕</button>
+          </div>
+
+          <!-- Graph overlay controls -->
+          <div class="graph-ctrl-bar">
+            <button class="graph-ctrl-btn" id="zoom-in-btn" title="Zoom In">＋</button>
+            <button class="graph-ctrl-btn" id="zoom-out-btn" title="Zoom Out">－</button>
+            <button class="graph-ctrl-btn" id="fit-btn2" title="Ajustar tela">⊞</button>
+            <button class="graph-ctrl-btn" id="bubble-anim-btn" title="Animação bolha">🫧</button>
+          </div>
+
+          <!-- Legend -->
+          <div class="graph-legend" id="graph-legend"></div>
+
+          <!-- Expansion mode bar -->
+          <div class="expansion-mode-bar" id="expansion-mode-bar">
+            <span class="expansion-label">Expansão:</span>
+            <button class="exp-btn active" data-mode="full" title="Expandir todas as relações">Full</button>
+            <button class="exp-btn" data-mode="filtered" title="Escolher quais relações expandir">Filtered</button>
+            <button class="exp-btn" data-mode="manual" title="Adicionar nó sem expandir">Manual</button>
+          </div>
+
+        </div>
+
+        <!-- Detail panel resize handle -->
+        <div class="resize-handle" id="detail-resizer" title="Arrastar para redimensionar"></div>
+
+        <!-- Detail panel (right side, slides in) -->
+        <div id="detail-panel" class="detail-panel hidden">
+
+          <div class="detail-panel-header">
+            <div class="detail-panel-title">
+              <span id="detail-table-name" class="detail-table-name"></span>
+              <span id="detail-group-tag" class="tag tag-blue"></span>
+            </div>
+            <div class="detail-panel-actions">
+              <button class="btn btn-ghost btn-sm panel-toggle-btn" id="toggle-detail-btn" title="Minimizar painel">▶</button>
+              <button class="btn btn-ghost btn-sm" id="back-detail-btn" title="Voltar" style="display:none">← Voltar</button>
+              <button class="btn btn-outline btn-sm" id="expand-node-btn" title="Expandir relações no grafo">🔗 Expandir</button>
+              <button class="btn btn-ghost btn-sm" id="close-detail-btn" title="Fechar painel">✕</button>
+            </div>
+          </div>
+
+          <div id="detail-breadcrumbs" class="detail-breadcrumbs hidden"></div>
+
+          <!-- Detail tabs -->
+          <div class="tabs">
+            <div class="tab-list">
+              <button class="tab-btn active" data-tab="fields">
+                🔲 Campos <span id="tab-fields-count" class="tab-count"></span>
+              </button>
+              <button class="tab-btn" data-tab="relations">
+                🔗 Relações <span id="tab-rels-count" class="tab-count"></span>
+              </button>
+              <button class="tab-btn" data-tab="query">
+                💻 Query
+              </button>
+            </div>
+          </div>
+
+          <!-- Fields tab -->
+          <div class="tab-content active" id="tab-fields">
+            <div class="props-filter-wrap">
+              <input type="text" class="props-filter" id="fields-filter" placeholder="Filtrar campos..." />
+              <span id="fields-shown-count" class="props-count"></span>
+            </div>
+            <div class="props-table-wrap">
+              <table class="props-table" id="fields-table">
+                <thead>
+                  <tr>
+                    <th>Sel</th>
+                    <th>Nome</th>
+                    <th>Tipo</th>
+                    <th>EDT / Enum</th>
+                  </tr>
+                </thead>
+                <tbody id="fields-tbody"></tbody>
+              </table>
+              <div id="fields-empty" class="empty-state hidden">Nenhum campo disponível</div>
+            </div>
+          </div>
+
+          <!-- Relations tab -->
+          <div class="tab-content" id="tab-relations">
+            <div class="props-filter-wrap">
+              <input type="text" class="props-filter" id="rels-filter" placeholder="Filtrar relações..." />
+              <span id="rels-shown-count" class="props-count"></span>
+            </div>
+            <div id="relations-list" class="nav-list"></div>
+            <div id="rels-empty" class="empty-state hidden">Nenhuma relação disponível</div>
+          </div>
+
+          <!-- Query tab -->
+          <div class="tab-content" id="tab-query">
+            <div class="query-section">
+
+              <div id="query-hint" class="query-hint">
+                <p>📌 Selecione dois nós no grafo (Ctrl+Clique) ou use o painel <strong>"Caminho mais curto"</strong> na sidebar para gerar queries do caminho entre tabelas.</p>
+                <p style="margin-top:8px">Ou gere uma query simples para a tabela atual:</p>
+                <button class="btn btn-outline btn-sm" id="gen-simple-query-btn">⚡ Gerar Query Simples</button>
+              </div>
+
+              <div id="query-output" class="hidden">
+                <div style="margin-bottom:8px">
+                  <button class="btn btn-ghost btn-sm hidden" id="toggle-while-select-btn">🔁 Gerar bloco de iteração (while select)</button>
+                </div>
+                <div class="query-path-label" id="query-path-label"></div>
+
+                <h4 class="query-lang-label">SQL</h4>
+                <div class="code-block">
+                  <pre id="sql-output" class="query-pre"></pre>
+                  <button class="copy-btn" onclick="copyCode('sql-output', this)">📋 Copiar</button>
+                </div>
+
+                <h4 class="query-lang-label" style="margin-top:14px">X++ (select statement)</h4>
+                <div class="code-block">
+                  <pre id="xpp-output" class="query-pre"></pre>
+                  <button class="copy-btn" onclick="copyCode('xpp-output', this)">📋 Copiar</button>
+                </div>
+              </div>
+
+              <div id="query-accordion" class="hidden"></div>
+
+            </div>
+          </div>
+
+        </div><!-- /detail-panel -->
+
+      </main>
+    </div><!-- /layout -->
+  </div><!-- /app -->
+
+  <!-- Expansion dialog (US 3.1) -->
+  <div id="expansion-dialog" class="expansion-dialog hidden">
+    <div class="expansion-dialog-inner">
+      <h4 class="exp-dialog-title">Selecionar relações para expandir</h4>
+      <!-- US P3 1.3: filter input -->
+      <input type="text" id="expansion-dialog-filter" class="props-filter" placeholder="Filtrar relações..." />
+      <div class="exp-dialog-bulk-actions">
+        <button class="btn btn-ghost btn-sm" id="exp-select-all-btn">✅ Selecionar Tudo</button>
+        <button class="btn btn-ghost btn-sm" id="exp-deselect-all-btn">⬜ Desmarcar Tudo</button>
+      </div>
+      <div id="expansion-dialog-list" class="exp-dialog-list"></div>
+      <div class="exp-dialog-actions">
+        <button class="btn btn-primary btn-sm" id="expansion-confirm-btn">Confirmar</button>
+        <button class="btn btn-ghost btn-sm" id="expansion-cancel-btn">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hover tooltip (US 3.2) -->
+  <div id="hover-tooltip" class="hover-tooltip hidden">
+    <div class="tt-name" id="tt-name"></div>
+    <div class="tt-row"><span class="tt-label">Grupo:</span><span id="tt-group"></span></div>
+    <div class="tt-row"><span class="tt-label">Campos:</span><span id="tt-fields"></span></div>
+    <div class="tt-row"><span class="tt-label">Relações:</span><span id="tt-rels"></span></div>
+  </div>
+
+  <!-- Shortcuts modal (US 3.1) -->
+  <div id="shortcuts-modal" class="shortcuts-modal hidden">
+    <div class="shortcuts-modal-inner">
+      <div class="shortcuts-modal-header">
+        <h4>⌨ Atalhos de Teclado</h4>
+        <button class="btn btn-ghost btn-sm" id="shortcuts-modal-close-btn">✕</button>
+      </div>
+      <table class="shortcut-table">
+        <tbody>
+          <tr><td><kbd class="shortcut-key">Ctrl+F</kbd></td><td>Buscar nó no canvas</td></tr>
+          <tr><td><kbd class="shortcut-key">Ctrl+,</kbd></td><td>Abrir configurações</td></tr>
+          <tr><td><kbd class="shortcut-key">Ctrl+B</kbd></td><td>Alternar modo bolha</td></tr>
+          <tr><td><kbd class="shortcut-key">Ctrl+S</kbd></td><td>Exportar grafo</td></tr>
+          <tr><td><kbd class="shortcut-key">Ctrl+Shift+S</kbd></td><td>Exportar grafo (alternativo)</td></tr>
+          <tr><td><kbd class="shortcut-key">Ctrl+O</kbd></td><td>Importar grafo</td></tr>
+          <tr><td><kbd class="shortcut-key">Ctrl+N</kbd></td><td>Carregar novo JSON</td></tr>
+          <tr><td><kbd class="shortcut-key">Ctrl+Alt+L</kbd></td><td>Forçar redesenho do layout</td></tr>
+          <tr><td><kbd class="shortcut-key">Ctrl+L</kbd></td><td>Limpar grafo</td></tr>
+          <tr><td><kbd class="shortcut-key">Ctrl+Z</kbd></td><td>Desfazer ação</td></tr>
+          <tr><td><kbd class="shortcut-key">Duplo clique em nó</kbd></td><td>Expandir relações</td></tr>
+          <tr><td><kbd class="shortcut-key">Ctrl+Click em nó</kbd></td><td>Selecionar para query</td></tr>
+          <tr><td><kbd class="shortcut-key">Shift+Click em nó</kbd></td><td>Enfileirar para path</td></tr>
+          <tr><td><kbd class="shortcut-key">Click do meio em nó</kbd></td><td>Remover do grafo</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="settings-modal" class="shortcuts-modal hidden">
+    <div class="shortcuts-modal-inner settings-modal-inner">
+      <div class="shortcuts-modal-header">
+        <h4>⚙️ Configurações</h4>
+        <button class="btn btn-ghost btn-sm" id="settings-modal-close-btn">✕</button>
+      </div>
+      <div class="settings-section">
+        <h5>Visualização do Grafo</h5>
+        <div class="settings-row">
+          <span>Layout</span>
+          <select id="cfg-layout" class="region-select">
+            <option value="cose">Cose</option>
+            <option value="circle">Circular</option>
+            <option value="breadthfirst">Árvore</option>
+            <option value="grid">Grade</option>
+            <option value="concentric">Concêntrico</option>
+          </select>
+        </div>
+        <div class="settings-row">
+          <span>Dispersão (nodeRepulsion)</span>
+          <input id="cfg-repulsion" type="range" min="4000" max="20000" step="500" />
+        </div>
+        <div class="settings-row">
+          <span>Comprimento ideal da aresta</span>
+          <input id="cfg-edge-length" type="range" min="80" max="260" step="10" />
+        </div>
+        <div class="settings-row"><span>Legibilidade dinâmica por zoom</span><input id="cfg-auto-font" type="checkbox" /></div>
+        <div class="settings-row"><span>Mostrar nomes das relações</span><input id="cfg-show-edge-labels" type="checkbox" /></div>
+        <div class="settings-row"><span>Mostrar cardinalidade nas relações</span><input id="cfg-show-cardinality" type="checkbox" /></div>
+        <div class="settings-row"><span>Modo bolha (Ctrl+B)</span><input id="cfg-bubble" type="checkbox" /></div>
+      </div>
+      <div class="settings-section">
+        <h5>Destaques e Busca</h5>
+        <div class="settings-row"><span>Destaque direcional (entrada/saída)</span><input id="cfg-directional-highlight" type="checkbox" /></div>
+        <div class="settings-row"><span>Pathfinding com direção estrita</span><input id="cfg-strict-direction" type="checkbox" /></div>
+        <div class="settings-row"><span>Profundidade máxima do caminho</span><input id="cfg-max-depth" type="number" min="1" max="20" value="8" /></div>
+        <div class="settings-row"><span>Dashboard usa filtro da sidebar</span><input id="cfg-dashboard-filter" type="checkbox" /></div>
+      </div>
+      <div class="settings-section">
+        <h5>Motor X++ Query</h5>
+        <div class="settings-row"><span>Preferir while select por padrão</span><input id="cfg-default-iterative" type="checkbox" /></div>
+        <div class="settings-row"><span>Incluir DataAreaId e Partition</span><input id="cfg-include-system-fields" type="checkbox" /></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="dashboard-modal" class="shortcuts-modal hidden">
+    <div class="shortcuts-modal-inner dashboard-modal-inner">
+      <div class="shortcuts-modal-header">
+        <h4>📊 Análise de Metadados</h4>
+        <div style="display:flex;align-items:center;gap:10px">
+          <label class="path-option"><input type="checkbox" id="dash-use-sidebar-filter" /> Usar filtro da sidebar</label>
+          <button class="btn btn-ghost btn-sm" id="dashboard-close-btn">✕</button>
+        </div>
+      </div>
+      <div class="dashboard-cards" id="dashboard-cards"></div>
+      <div class="dashboard-grid">
+        <div class="dashboard-section">
+          <h5>TableGroup</h5>
+          <div id="dash-group-dist"></div>
+        </div>
+        <div class="dashboard-section">
+          <h5>Modelos (tabelas tocadas)</h5>
+          <div id="dash-model-dist"></div>
+        </div>
+        <div class="dashboard-section">
+          <h5>Top 10 conectividade</h5>
+          <div id="dash-top-connected"></div>
+        </div>
+        <div class="dashboard-section">
+          <h5>Top 10 campos</h5>
+          <div id="dash-top-fields"></div>
+        </div>
+        <div class="dashboard-section">
+          <h5>Enums mais usados</h5>
+          <div id="dash-enums"></div>
+        </div>
+        <div class="dashboard-section">
+          <h5>Tabelas órfãs</h5>
+          <div id="dash-orphans"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="state.js?v=20260411a"></script>
+  <script src="metadata-store.js?v=20260411a"></script>
+  <script src="metadata-ingestion.js?v=20260411a"></script>
+  <script src="search-engine.js"></script>
+  <script src="query-engine.js"></script>
+  <script src="pathfinding.js"></script>
+  <script src="shortcuts.js"></script>
+  <script src="graph-engine.js"></script>
+  <script src="ui-manager.js"></script>
+  <script src="app.js?v=20260411a"></script>
+</body>
+</html>

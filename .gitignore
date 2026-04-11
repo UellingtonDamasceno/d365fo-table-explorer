@@ -1,0 +1,19 @@
+# Excluir dados extraídos
+data/
+
+# Excluir documentação, especificações e guias
+docs/
+specs/
+fix/
+*.md
+
+# Excluir scripts de extração PowerShell
+scripts/
+*.ps1
+
+# Excluir backups e versões antigas
+backups/
+app-versions/
+
+# Excluir logs do Playwright MCP
+.playwright-mcp/
