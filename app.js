@@ -2197,7 +2197,7 @@ function renderQueryAccordion(path) {
     for (let i = 1; i < subPath.length; i++) {
       const step = subPath[i];
       const a = aliases[step.table];
-      const rel = subPath[i - 1].relation;
+      const rel = subPath[i].relation;
       const resolved = resolvedConstraints(subPath[i - 1].table, step.table, rel);
       const joinConds = resolved.constraints.map(c =>
         `        <span class="tbl">${aliases[subPath[i-1].table]}</span>.<span class="fld">${c.field}</span> = <span class="tbl">${a}</span>.<span class="fld">${c.relatedField}</span>`
@@ -2224,20 +2224,29 @@ function renderQueryAccordion(path) {
       const a = aliases[step.table];
       const selected = getSelectedFields(step.table);
       const fieldChunk = selected.length ? selected.map(f => `<span class="fld">${f}</span>`).join(', ') : `<span class="tbl">${a}</span>`;
-      if (i === 0) return `<span class="kw">${whileSelectMode ? 'while select' : 'select'}</span> ${fieldChunk} <span class="kw">from</span> <span class="tbl">${step.table}</span>`;
-      const rel = subPath[i - 1].relation;
+      
+      if (i === 0) {
+        const selectKw = whileSelectMode ? 'while select' : 'select firstOnly';
+        return `<span class="kw">${selectKw}</span> ${fieldChunk}`;
+      }
+
+      const rel = subPath[i].relation;
       const resolved = resolvedConstraints(subPath[i - 1].table, step.table, rel);
       const joinFs = resolved.constraints.map(c =>
         `           <span class="tbl">${aliases[subPath[i-1].table]}</span>.<span class="fld">${c.field}</span> == <span class="tbl">${a}</span>.<span class="fld">${c.relatedField}</span>`
       );
       const note = resolved.inferred ? `\n    <span class="cm">// constraints inferidas por nome de campo</span>` : '';
+      
+      const joinHeader = `    <span class="kw">join</span> ${fieldChunk}`;
       if (joinFs.length === 0) {
-        return `    <span class="kw">join</span> ${fieldChunk} <span class="kw">from</span> <span class="tbl">${step.table}</span>${note}`;
+        return `${joinHeader}${note}`;
       }
       const whereExpr = joinFs.join('\n        <span class="kw">&&</span> ');
-      return `    <span class="kw">join</span> ${fieldChunk} <span class="kw">from</span> <span class="tbl">${step.table}</span>${note}\n    <span class="kw">where</span> ${whereExpr}`;
+      return `${joinHeader}${note}\n    <span class="kw">where</span> ${whereExpr}`;
     });
+
     const varDecls = subPath.map(step => `    <span class="tbl">${step.table}</span> <span class="tbl">${aliases[step.table]}</span>;`).join('\n');
+    
     if (whileSelectMode) {
       return `<span class="cm">// Declarations</span>\n${varDecls}\n\n<span class="cm">// Query</span>\n${xppSelect.join('\n')}\n{\n    <span class="cm">// TODO: Insira sua lógica de processamento aqui</span>\n}`;
     }
@@ -2250,7 +2259,11 @@ function renderQueryAccordion(path) {
     const t = tableIndex[step.table];
     const topFields = t ? getSqlProjection(step.table, alias).map(f => `    ${f}`).join(',\n') : `    ${alias}.*`;
     const sql = `<span class="kw">SELECT</span>\n${topFields}\n<span class="kw">FROM</span> <span class="tbl">${step.table}</span> <span class="kw">AS</span> <span class="tbl">${alias}</span>`;
-    const xpp = `<span class="kw">select</span> <span class="tbl">${alias}</span>\n    <span class="kw">from</span> <span class="tbl">${step.table}</span>;`;
+    
+    const xppPicked = getSelectedFields(step.table);
+    const xppSelectExpr = xppPicked.length ? xppPicked.join(', ') : alias;
+    const xpp = `<span class="cm">// Declaration</span>\n<span class="tbl">${step.table}</span> <span class="tbl">${alias}</span>;\n\n<span class="cm">// Query</span>\n<span class="kw">select firstOnly</span> ${esc(xppSelectExpr)};`;
+    
     return `<div class="accordion-item"><button class="accordion-header">${esc(step.table)}</button><div class="accordion-body">${buildQueryBlock(sql, xpp)}</div></div>`;
   }).join('');
 
