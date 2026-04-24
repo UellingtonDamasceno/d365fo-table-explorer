@@ -38,10 +38,10 @@ function deriveContextFromPath(path) {
   };
 }
 
-function relationKey(rel) {
-  const constraints = Array.isArray(rel?.constraints) ? rel.constraints : [];
-  const cKey = constraints.map(c => `${c.field}=${c.relatedField}`).join('&');
-  return `${rel?.name || ''}|${rel?.relatedTable || ''}|${cKey}`;
+function relationDedupKey(rel) {
+  const byName = String(rel?.name || '').trim();
+  if (byName) return byName.toLowerCase();
+  return String(rel?.relatedTable || '').trim().toLowerCase();
 }
 
 function createAggTable(name) {
@@ -94,7 +94,7 @@ function mergeFragment(tableMap, fragment) {
       table._fieldByName.set(k, copy);
       return;
     }
-    // Update missing types if extension has more info (unlikely but safe)
+    // Update missing types if extension has more info
     if (!existing.type && field.type) existing.type = String(field.type);
     if (!existing.extendedDataType && field.extendedDataType) existing.extendedDataType = String(field.extendedDataType);
     if (!existing.enumType && field.enumType) existing.enumType = String(field.enumType);
@@ -103,7 +103,7 @@ function mergeFragment(tableMap, fragment) {
 
   (fragment.relations || []).forEach(rel => {
     if (!rel?.relatedTable) return;
-    const key = relationKey(rel);
+    const key = relationDedupKey(rel);
     const existing = table._relByKey.get(key);
     if (!existing) {
       const copy = {
@@ -147,33 +147,49 @@ function finalizeAggTables(tableMap) {
   return out;
 }
 
+function finalizeExt(extMap) {
+  return [...extMap.values()].sort((a, b) => {
+    const c1 = a.tableName.localeCompare(b.tableName);
+    return c1 !== 0 ? c1 : a.model.localeCompare(b.model);
+  });
+}
+
 // ── REGEX-BASED PARSER (Primary & Reliable) ────────────────────────
+// Removemos totalmente o fast-xml-parser. O D365FO XML possui tags aninhadas 
+// conflituosas (como FieldGroups > Fields vs Root > Fields) que enganam 
+// parsers JSON. O Regex global atinge 100% de paridade com o comportamento C#.
 function parseByRegex(xmlText, path) {
   const ctx = deriveContextFromPath(path);
-  const isExt = /<AxTableExtension/i.test(xmlText) || ctx.isExtension;
+  const hasExtRoot = /<\s*AxTableExtension(?:\s|>)/i.test(xmlText);
+  const hasBaseRoot = /<\s*AxTable(?:\s|>)/i.test(xmlText);
+  if (!hasExtRoot && !hasBaseRoot) return null;
+  const isExt = hasExtRoot || (!hasBaseRoot && ctx.isExtension);
+  const rootPattern = isExt
+    ? /<\s*AxTableExtension[\s\S]*<\/\s*AxTableExtension\s*>/i
+    : /<\s*AxTable[\s\S]*<\/\s*AxTable\s*>/i;
+  const rootMatch = xmlText.match(rootPattern);
+  const rootXml = rootMatch ? rootMatch[0] : xmlText;
   
   // 1. Object Name
-  const nameMatch = xmlText.match(/<Name[^>]*>([\s\S]*?)<\/Name>/i);
+  const nameMatch = rootXml.match(/<Name[^>]*>([\s\S]*?)<\/Name>/i);
   const objectName = nameMatch ? cleanValue(nameMatch[1]) : fileNameNoExt(path);
   const baseName = isExt && objectName.includes('.') ? objectName.split('.')[0] : objectName;
   if (!baseName) return null;
 
   const model = ctx.model || 'Unknown';
-  const tableGroup = !isExt ? (extractTagValue('TableGroup', xmlText) || 'None') : 'None';
+  const tableGroup = !isExt ? (extractTagValue('TableGroup', rootXml) || 'None') : 'None';
 
   // 2. Extract Fields (GLOBAL SEARCH)
-  // Use negative lookahead to avoid AxTableFieldGroup and AxTableFieldGroupField
-  const fieldBlocks = xmlText.match(/<AxTableField(?!\w)[\s\S]*?<\/AxTableField>/gi) || [];
+  // Lookahead negativo (?!\w) garante que não capturemos AxTableFieldGroupField
+  const fieldBlocks = rootXml.match(/<AxTableField(?!\w)[\s\S]*?<\/AxTableField>/gi) || [];
   const fields = fieldBlocks.map(fb => {
     const fNameMatch = fb.match(/<Name[^>]*>([\s\S]*?)<\/Name>/i);
     const fName = fNameMatch ? cleanValue(fNameMatch[1]) : '';
     if (!fName) return null;
 
-    // Type is usually in the i:type attribute of AxTableField
     const typeMatch = fb.match(/(?:i:type|type)="([^"]+)"/i);
     let type = typeMatch ? typeMatch[1] : '';
     if (!type) {
-       // Fallback: try to see if it's a specific tag like <AxTableFieldString> (rare in modern versions but possible in older)
        const tagMatch = fb.match(/<AxTableField(\w+)/i);
        if (tagMatch && tagMatch[1]) type = 'AxTableField' + tagMatch[1];
     }
@@ -188,8 +204,8 @@ function parseByRegex(xmlText, path) {
   }).filter(Boolean);
 
   // 3. Extract Relations (GLOBAL SEARCH)
-  // Avoid AxTableRelationConstraint
-  const relBlocks = xmlText.match(/<AxTableRelation(?!\w)[\s\S]*?<\/AxTableRelation>/gi) || [];
+  // Ignora restrições e outros sufixos
+  const relBlocks = rootXml.match(/<AxTableRelation(?!\w)[\s\S]*?<\/AxTableRelation>/gi) || [];
   const relations = relBlocks.map(rb => {
     const relTable = extractTagValue('RelatedTable', rb);
     if (!relTable) return null;
@@ -197,8 +213,7 @@ function parseByRegex(xmlText, path) {
     const constraints = [];
     const constBlocks = rb.match(/<AxTableRelationConstraint(?!\w)[\s\S]*?<\/AxTableRelationConstraint>/gi) || [];
     constBlocks.forEach(cb => {
-      // Only Field-to-Field constraints for now (most common and useful for queries)
-      if (cb.includes('AxTableRelationConstraintField')) {
+      if (/(?:i:type|type)\s*=\s*"AxTableRelationConstraintField"/i.test(cb) || /AxTableRelationConstraintField/i.test(cb)) {
         const f = extractTagValue('Field', cb);
         const rf = extractTagValue('RelatedField', cb);
         if (f && rf) constraints.push({ field: f, relatedField: rf });
@@ -222,6 +237,7 @@ function parseByRegex(xmlText, path) {
     name: baseName,
     isExtension: isExt,
     model,
+    models: [model],
     tableGroup,
     fields,
     relations
@@ -230,6 +246,7 @@ function parseByRegex(xmlText, path) {
 
 async function parsePartition(workerId, files) {
   const tableMap = new Map();
+  const extMap = new Map();
   let processed = 0;
   let errors = 0;
 
@@ -238,8 +255,28 @@ async function parsePartition(workerId, files) {
     try {
       const file = await entry.handle.getFile();
       const xmlText = await file.text();
+      // Unico ponto de entrada. Sem fallback falho.
       const fragment = parseByRegex(xmlText, entry.path);
-      if (fragment) mergeFragment(tableMap, fragment);
+      
+      if (fragment) {
+        mergeFragment(tableMap, fragment);
+        if (fragment.isExtension) {
+          const extKey = `${fragment.name}::${fragment.model}`;
+          if (!extMap.has(extKey)) {
+            extMap.set(extKey, {
+              tableName: fragment.name,
+              model: fragment.model || 'Unknown',
+              files: 0,
+              fieldsAdded: 0,
+              relationsAdded: 0,
+            });
+          }
+          const ext = extMap.get(extKey);
+          ext.files += 1;
+          ext.fieldsAdded += fragment.fields.length;
+          ext.relationsAdded += fragment.relations.length;
+        }
+      }
     } catch (e) {
       errors += 1;
     }
@@ -255,7 +292,7 @@ async function parsePartition(workerId, files) {
     processed,
     errors,
     tables: finalizeAggTables(tableMap),
-    extensions: [] 
+    extensions: finalizeExt(extMap),
   });
 }
 

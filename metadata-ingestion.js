@@ -1,12 +1,7 @@
 /* Browser-native metadata ingestion pipeline */
 (function () {
   const AX_FOLDER_RX = /^AxTable(Extension)?$/i;
-  const WORKER_URL = 'metadata-worker.js?v=20260411e';
-
-  // Pastas de objetos do AOT que são massivas e NÃO contêm tabelas.
-  // Pular estas pastas é o que garante a performance sem perder dados.
-  // IMPORTANTE: Não pular pastas de modelos legítimos.
-  const FOLDERS_TO_IGNORE = /^(AxClass|AxForm|AxQuery|AxReport|AxSecurityRole|AxSecurityDuty|AxSecurityPrivilege|AxSecurityPermission|AxMenu|AxMenuItem|AxLabel|AxTile|AxResource|AxEnum|AxEdt|AxWf|AxWorkflow|AxActionPane|AxFormExtension|bin|xppmetadata|descriptor|reports|resources|webfiles|buildproject)$/i;
+  const WORKER_URL = 'metadata-worker.js?v=20260424a';
 
   function supportsDirectoryImport() {
     return typeof window.showDirectoryPicker === 'function' && typeof Worker !== 'undefined';
@@ -46,9 +41,6 @@
       stats.dirs += 1;
       for await (const [name, handle] of dirHandle.entries()) {
         if (handle.kind === 'directory') {
-          // Se for uma pasta que sabemos não ter tabelas, pula a árvore inteira
-          if (FOLDERS_TO_IGNORE.test(name)) continue;
-
           await walk(handle, [...pathParts, name]);
           continue;
         }
@@ -85,10 +77,10 @@
     return partitions;
   }
 
-  function relationKey(rel) {
-    const constraints = Array.isArray(rel?.constraints) ? rel.constraints : [];
-    const cKey = constraints.map(c => `${c.field}=${c.relatedField}`).join('&');
-    return `${rel?.name || ''}|${rel?.relatedTable || ''}|${cKey}`;
+  function relationDedupKey(rel) {
+    const byName = String(rel?.name || '').trim();
+    if (byName) return byName.toLowerCase();
+    return String(rel?.relatedTable || '').trim().toLowerCase();
   }
 
   function ensureStringArray(value) {
@@ -154,7 +146,7 @@
 
       (src.relations || []).forEach(rel => {
         if (!rel?.relatedTable) return;
-        const key = relationKey(rel);
+        const key = relationDedupKey(rel);
         const existing = dst._relByKey.get(key);
         if (!existing) {
           const copy = {
