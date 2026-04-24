@@ -483,33 +483,25 @@ function setIngestionProgress(state) {
   let percent = 0;
 
   if (phase === 'scan') {
-    statusTxt.textContent = 'Varredura de disco...';
-    detailsTxt.textContent = `Encontrados: ${Number(state?.matchedFiles || 0).toLocaleString()} XMLs de tabelas e extensões`;
-    fill.style.width = '10%';
+    statusTxt.textContent = '🔍 Varredura de disco em paralelo...';
+    detailsTxt.textContent = `Encontrados: ${Number(state?.matchedFiles || 0).toLocaleString()} XMLs de tabelas e extensões em ${Number(state?.scannedFiles || 0).toLocaleString()} arquivos varridos`;
+    fill.style.width = '15%';
     percentTxt.textContent = '';
   } else if (phase === 'parse') {
     const processed = Number(state?.processed || 0);
     const total = Number(state?.total || 0);
     percent = total > 0 ? Math.round((processed / total) * 100) : 0;
-    statusTxt.textContent = 'Parsing XML em paralelo...';
-    detailsTxt.textContent = `${processed.toLocaleString()} / ${total.toLocaleString()} arquivos | ${Number(state?.workersDone || 0)}/${Number(state?.workersTotal || 0)} threads`;
+    statusTxt.textContent = '⚙️ Processando XMLs e mesclando extensões...';
+    detailsTxt.textContent = `${processed.toLocaleString()} / ${total.toLocaleString()} arquivos processados`;
     percentTxt.textContent = `${percent}%`;
-    fill.style.width = `${10 + (percent * 0.85)}%`; // goes up to 95%
-  } else if (phase === 'persist') {
-    const processed = Number(state?.processed || 0);
-    const total = Number(state?.total || 0);
-    percent = total > 0 ? Math.round((processed / total) * 100) : 0;
-    statusTxt.textContent = 'Salvando no IndexedDB...';
-    detailsTxt.textContent = `${processed.toLocaleString()} / ${total.toLocaleString()} tabelas persistidas`;
-    percentTxt.textContent = '98%';
-    fill.style.width = '98%';
+    fill.style.width = `${15 + (percent * 0.80)}%`; // vai de 15% a 95%
   } else if (phase === 'done') {
-    statusTxt.textContent = 'Concluído!';
+    statusTxt.textContent = '✅ Concluído!';
     detailsTxt.textContent = state?.message || 'Importação finalizada com sucesso.';
     percentTxt.textContent = '100%';
     fill.style.width = '100%';
   } else if (phase === 'error') {
-    statusTxt.textContent = 'Falha na importação';
+    statusTxt.textContent = '❌ Falha na importação';
     statusTxt.style.color = 'var(--accent-red)';
     detailsTxt.textContent = state?.message || 'Erro desconhecido.';
   }
@@ -527,7 +519,7 @@ async function importFromDirectory() {
   document.getElementById('file-input-area').classList.remove('hidden');
   resetIngestionProgress();
 
-  console.log('[Ingestion] Iniciando importação Local-First...');
+  console.log('[Ingestion] Iniciando importação otimizada...');
   const tStartTotal = performance.now();
 
   try {
@@ -545,62 +537,41 @@ async function importFromDirectory() {
       onProgress: (p) => setIngestionProgress(p),
     });
     const tEndScan = performance.now();
-    const scanTimeMs = (tEndScan - tStartScan).toFixed(2);
-    console.log(`[Ingestion] 🔍 Fase 1 (Varredura) concluída em ${scanTimeMs}ms. Arquivos encontrados: ${scan.files.length}`);
+    console.log(`[Ingestion] 🔍 Fase 1 (Varredura Paralela) concluída em ${(tEndScan - tStartScan).toFixed(2)}ms. Encontrados: ${scan.files.length}`);
 
     if (!scan.files.length) {
-      setLoading('Nenhum XML de AxTable/AxTableExtension foi encontrado na pasta selecionada.');
-      if (overlayWasHidden) {
-        hideOverlay();
-        alert('Nenhum XML de AxTable/AxTableExtension encontrado na pasta selecionada.');
-      }
+      setLoading('Nenhum XML de AxTable foi encontrado.');
+      if (overlayWasHidden) hideOverlay();
       return;
     }
 
-    setLoading(`Processando ${scan.files.length.toLocaleString()} arquivos em paralelo...`);
-    const tStartParse = performance.now();
+    setLoading(`Processando ${scan.files.length.toLocaleString()} arquivos...`);
     const parsed = await window.D365Ingestion.processFiles(scan.files, {
       onProgress: (p) => setIngestionProgress(p),
     });
-    const tEndParse = performance.now();
-    const parseTimeMs = (tEndParse - tStartParse).toFixed(2);
-    console.log(`[Ingestion] ⚙️ Fase 2 (Processamento/Merge) concluída em ${parseTimeMs}ms. Tabelas únicas resultantes: ${parsed.tables.length}`);
-
+    
     setLoading('Persistindo metadados no IndexedDB...');
-    setIngestionProgress({ phase: 'persist', processed: 0, total: parsed.tables.length });
-    const tStartPersist = performance.now();
     if (window.D365MetadataDB?.isSupported?.()) {
-      await window.D365MetadataDB.saveImport(parsed);
+      await window.D365MetadataDB.saveImport({
+        tables: parsed.tables,
+        extensions: parsed.extensions,
+        stats: { durationMs: performance.now() - tStartTotal }
+      });
       lastImportInfo = await window.D365MetadataDB.getImportInfo();
     }
-    const tEndPersist = performance.now();
-    const persistTimeMs = (tEndPersist - tStartPersist).toFixed(2);
-    console.log(`[Ingestion] 💾 Fase 3 (Indexação/Persistência) concluída em ${persistTimeMs}ms.`);
 
     const tEndTotal = performance.now();
     const totalTimeSec = ((tEndTotal - tStartTotal) / 1000).toFixed(2);
-    console.log(`[Ingestion] ✅ Importação completa! Tempo total: ${totalTimeSec} segundos.`);
-
     setIngestionProgress({ phase: 'done', message: `Importação concluída: ${parsed.tables.length.toLocaleString()} tabelas em ${totalTimeSec}s` });
     init({ tables: parsed.tables });
   } catch (err) {
     if (err?.name === 'AbortError') {
       if (overlayWasHidden) hideOverlay();
-      else {
-        setLoading('Importação cancelada pelo usuário.');
-        resetIngestionProgress();
-      }
       return;
     }
-    console.error('Falha na importação local-first:', err);
-    const errMsg = `Falha na importação: ${err?.message || err}`;
-    setLoading(`❌ ${errMsg}`);
-    setIngestionProgress({ phase: 'error', message: 'Falha ao processar XMLs. Verifique o console.' });
+    console.error('Falha na importação:', err);
+    setLoading(`❌ Falha: ${err.message}`);
     document.getElementById('file-input-area').classList.remove('hidden');
-    if (overlayWasHidden) {
-      hideOverlay();
-      alert(`❌ ${errMsg}`);
-    }
   }
 }
 

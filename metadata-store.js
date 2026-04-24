@@ -3,7 +3,6 @@
   const DB_NAME = 'd365fo-table-explorer-db';
   const IMPORT_INFO_KEY = 'last-import';
   const TABLE_CHUNK_SIZE = 300;
-  const EXT_CHUNK_SIZE = 500;
 
   let db = null;
 
@@ -23,169 +22,88 @@
     return db;
   }
 
-  function uniqStr(arr) {
-    return [...new Set((arr || []).map(x => String(x || '').trim()).filter(Boolean))];
-  }
-
-  function normalizeField(field) {
-    const sourceModels = uniqStr(field?.sourceModels);
-    return {
-      name: String(field?.name || ''),
-      type: String(field?.type || ''),
-      extendedDataType: String(field?.extendedDataType || field?.edt || ''),
-      enumType: String(field?.enumType || ''),
-      sourceModels,
-    };
-  }
-
-  function normalizeRelation(rel) {
-    const constraints = Array.isArray(rel?.constraints)
-      ? rel.constraints
-          .map(c => ({
-            field: String(c?.field || ''),
-            relatedField: String(c?.relatedField || ''),
-          }))
-          .filter(c => c.field && c.relatedField)
-      : [];
-    return {
-      name: String(rel?.name || ''),
-      relatedTable: String(rel?.relatedTable || ''),
-      cardinality: String(rel?.cardinality || ''),
-      relatedTableCardinality: String(rel?.relatedTableCardinality || ''),
-      relationshipType: String(rel?.relationshipType || ''),
-      constraints,
-      sourceModels: uniqStr(rel?.sourceModels),
-    };
-  }
+  function uniq(arr) { return [...new Set((arr || []).filter(Boolean))]; }
 
   function normalizeTable(table) {
-    const fields = Array.isArray(table?.fields) ? table.fields.map(normalizeField).filter(f => f.name) : [];
-    const relations = Array.isArray(table?.relations) ? table.relations.map(normalizeRelation).filter(r => r.relatedTable && r.constraints.length) : [];
-    const models = uniqStr(table?.models && table.models.length ? table.models : [table?.model || 'Unknown']);
-    const model = String(table?.model || models[0] || 'Unknown');
-
+    const fieldNames = (table.fields || []).map(f => String(f?.name || '')).filter(Boolean);
+    const relatedTables = (table.relations || []).map(r => String(r?.relatedTable || '')).filter(Boolean);
     return {
-      name: String(table?.name || ''),
-      tableGroup: String(table?.tableGroup || 'None'),
-      model,
-      models,
-      fields,
-      relations,
-      fieldNames: uniqStr(fields.map(f => f.name)),
-      relatedTables: uniqStr(relations.map(r => r.relatedTable)),
-      updatedAt: Date.now(),
+      ...table,
+      fieldNames: uniq(fieldNames),
+      relatedTables: uniq(relatedTables),
+      updatedAt: Date.now()
     };
   }
 
-  function normalizeExtension(ext) {
-    return {
-      tableName: String(ext?.tableName || ''),
-      model: String(ext?.model || 'Unknown'),
-      files: Number(ext?.files || 0),
-      fieldsAdded: Number(ext?.fieldsAdded || 0),
-      relationsAdded: Number(ext?.relationsAdded || 0),
-      updatedAt: Date.now(),
-    };
-  }
+  /**
+   * Grava um lote de tabelas realizando o merge se já existirem no banco.
+   * Crucial para a estratégia de Pipeline (Streaming).
+   */
+  async function saveImportBatch(newTables) {
+    const d = getDb();
+    if (!d) return;
 
-  function chunk(array, size) {
-    const out = [];
-    for (let i = 0; i < array.length; i += size) out.push(array.slice(i, i + size));
-    return out;
-  }
+    await d.transaction('rw', d.table('tables'), async () => {
+      const names = newTables.map(t => t.name);
+      const existing = await d.table('tables').where('name').anyOf(names).toArray();
+      const existingMap = new Map(existing.map(t => [t.name, t]));
 
-  function stores(d) {
-    return {
-      tables: d.table('tables'),
-      extensions: d.table('extensions'),
-      meta: d.table('meta'),
-    };
-  }
+      const toPut = newTables.map(incoming => {
+        const base = existingMap.get(incoming.name);
+        if (!base) return normalizeTable(incoming);
 
-  async function bulkPutChunked(table, rows, size) {
-    const chunks = chunk(rows, size);
-    for (const part of chunks) {
-      if (part.length) await table.bulkPut(part);
-    }
+        // Merge lógico: combina campos, relações e modelos
+        const mergedModels = uniq([...(base.models || []), ...(incoming.models || [])]);
+        
+        // Merge de campos (deduplicado por nome)
+        const fieldMap = new Map();
+        [...(base.fields || []), ...(incoming.fields || [])].forEach(f => {
+          if (f.name) fieldMap.set(f.name.toLowerCase(), f);
+        });
+
+        // Merge de relações (deduplicado por nome/tabela)
+        const relMap = new Map();
+        [...(base.relations || []), ...(incoming.relations || [])].forEach(r => {
+          const key = (r.name || r.relatedTable).toLowerCase();
+          relMap.set(key, r);
+        });
+
+        return normalizeTable({
+          ...base,
+          tableGroup: (incoming.tableGroup !== 'None') ? incoming.tableGroup : base.tableGroup,
+          models: mergedModels,
+          fields: Array.from(fieldMap.values()),
+          relations: Array.from(relMap.values()),
+        });
+      });
+
+      await d.table('tables').bulkPut(toPut);
+    });
   }
 
   async function clearAll() {
     const d = getDb();
-    if (!d) return false;
-    const s = stores(d);
-    await d.transaction('rw', s.tables, s.extensions, s.meta, async () => {
-      await s.tables.clear();
-      await s.extensions.clear();
-      await s.meta.clear();
-    });
-    return true;
+    if (d) {
+      await d.table('tables').clear();
+      await d.table('extensions').clear();
+      await d.table('meta').clear();
+    }
   }
 
   async function saveImport(payload) {
     const d = getDb();
     if (!d) return false;
-
-    const tables = (payload?.tables || []).map(normalizeTable).filter(t => t.name);
-    const extensions = (payload?.extensions || []).map(normalizeExtension).filter(x => x.tableName && x.model);
-    const stats = payload?.stats || {};
-
-    const s = stores(d);
-    await d.transaction('rw', s.tables, s.extensions, s.meta, async () => {
-      await s.tables.clear();
-      await s.extensions.clear();
-      await bulkPutChunked(s.tables, tables, TABLE_CHUNK_SIZE);
-      await bulkPutChunked(s.extensions, extensions, EXT_CHUNK_SIZE);
-      await s.meta.put({
-        key: IMPORT_INFO_KEY,
-        value: {
-          ...stats,
-          totalTables: tables.length,
-          totalExtensions: extensions.length,
-          importedAt: new Date().toISOString(),
-        },
-      });
+    await clearAll();
+    const tables = (payload.tables || []).map(normalizeTable);
+    await d.table('tables').bulkPut(tables);
+    await d.table('meta').put({ 
+      key: IMPORT_INFO_KEY, 
+      value: { 
+        importedAt: new Date().toISOString(), 
+        totalTables: tables.length 
+      } 
     });
-
     return true;
-  }
-
-  async function getAllTables() {
-    const d = getDb();
-    if (!d) return [];
-    return stores(d).tables.orderBy('name').toArray();
-  }
-
-  async function countTables() {
-    const d = getDb();
-    if (!d) return 0;
-    return stores(d).tables.count();
-  }
-
-  async function getImportInfo() {
-    const d = getDb();
-    if (!d) return null;
-    const row = await stores(d).meta.get(IMPORT_INFO_KEY);
-    return row?.value || null;
-  }
-
-  async function ensureStoragePersistence() {
-    if (!navigator.storage?.persist) {
-      return { supported: false, persisted: false };
-    }
-    let persisted = false;
-    try {
-      if (navigator.storage.persisted) persisted = await navigator.storage.persisted();
-    } catch (_) {}
-    if (!persisted) {
-      try { persisted = await navigator.storage.persist(); } catch (_) {}
-    }
-    let estimate = null;
-    try {
-      estimate = navigator.storage.estimate ? await navigator.storage.estimate() : null;
-    } catch (_) {
-      estimate = null;
-    }
-    return { supported: true, persisted, estimate };
   }
 
   window.D365MetadataDB = {
@@ -193,9 +111,10 @@
     init: getDb,
     clearAll,
     saveImport,
-    getAllTables,
-    countTables,
-    getImportInfo,
-    ensureStoragePersistence,
+    saveImportBatch,
+    getAllTables: () => getDb().table('tables').orderBy('name').toArray(),
+    countTables: () => getDb().table('tables').count(),
+    getImportInfo: async () => (await getDb().table('meta').get(IMPORT_INFO_KEY))?.value,
+    ensureStoragePersistence: async () => navigator.storage?.persist?.()
   };
 })();

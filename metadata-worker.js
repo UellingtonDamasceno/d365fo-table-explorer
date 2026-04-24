@@ -245,54 +245,52 @@ function parseByRegex(xmlText, path) {
 }
 
 async function parsePartition(workerId, files) {
-  const tableMap = new Map();
-  const extMap = new Map();
+  const BATCH_SIZE = 1000;
+  let tableMap = new Map();
   let processed = 0;
+  let totalProcessedInBatch = 0;
   let errors = 0;
 
   for (const entry of files) {
     processed += 1;
+    totalProcessedInBatch += 1;
     try {
       const file = await entry.handle.getFile();
       const xmlText = await file.text();
-      // Unico ponto de entrada. Sem fallback falho.
       const fragment = parseByRegex(xmlText, entry.path);
       
       if (fragment) {
         mergeFragment(tableMap, fragment);
-        if (fragment.isExtension) {
-          const extKey = `${fragment.name}::${fragment.model}`;
-          if (!extMap.has(extKey)) {
-            extMap.set(extKey, {
-              tableName: fragment.name,
-              model: fragment.model || 'Unknown',
-              files: 0,
-              fieldsAdded: 0,
-              relationsAdded: 0,
-            });
-          }
-          const ext = extMap.get(extKey);
-          ext.files += 1;
-          ext.fieldsAdded += fragment.fields.length;
-          ext.relationsAdded += fragment.relations.length;
-        }
       }
     } catch (e) {
       errors += 1;
     }
 
-    if (processed % 50 === 0) {
+    // Se atingir o tamanho do lote, envia para a thread principal e limpa a memória local
+    if (totalProcessedInBatch >= BATCH_SIZE) {
+      self.postMessage({
+        type: 'batch_result',
+        workerId,
+        processed: totalProcessedInBatch,
+        errors,
+        tables: finalizeAggTables(tableMap)
+      });
+      tableMap = new Map(); // Libera RAM IMEDIATAMENTE
+      totalProcessedInBatch = 0;
+      errors = 0;
+    } else if (processed % 100 === 0) {
       self.postMessage({ type: 'progress', workerId, processed, errors });
     }
   }
 
+  // Envio do último lote remanescente
   self.postMessage({
     type: 'result',
     workerId,
     processed,
     errors,
     tables: finalizeAggTables(tableMap),
-    extensions: finalizeExt(extMap),
+    extensions: [] 
   });
 }
 
