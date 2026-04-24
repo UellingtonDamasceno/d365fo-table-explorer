@@ -1,7 +1,7 @@
 /* Browser-native metadata ingestion pipeline */
 (function () {
   const AX_FOLDER_RX = /^AxTable(Extension)?$/i;
-  const WORKER_URL = 'metadata-worker.js?v=20260424g';
+  const WORKER_URL = 'metadata-worker.js?v=20260424h';
 
   const FOLDERS_TO_IGNORE = /^(AxClass|AxForm|AxQuery|AxReport|AxSecurityRole|AxSecurityDuty|AxSecurityPrivilege|AxSecurityPermission|AxMenu|AxMenuItem|AxLabel|AxTile|AxResource|AxEnum|AxEdt|AxWf|AxWorkflow|AxActionPane|AxFormExtension|bin|xppmetadata|descriptor|reports|resources|webfiles|buildproject)$/i;
 
@@ -49,7 +49,10 @@
                 stats.matchedFiles += 1;
               }
             }
-            if (onProgress && (stats.matchedFiles % 500 === 0 || stats.scannedFiles % 2000 === 0)) onProgress({ ...stats });
+            // OTIMIZAÇÃO: UI Throttle (reduz o custo de atualizar a tela 1.6M de vezes)
+            if (onProgress && (stats.matchedFiles % 1000 === 0 || stats.scannedFiles % 10000 === 0)) {
+              onProgress({ ...stats });
+            }
           }
         }
         if (tasks.length) await Promise.all(tasks);
@@ -59,10 +62,8 @@
     }
     await walk(rootHandle, [rootHandle.name || 'PackagesLocalDirectory']);
     const tEndScan = performance.now();
-    console.log(`[Metrics] 🔍 Varredura de disco concluída em ${(tEndScan - tStartScan).toFixed(2)}ms`);
-    
     if (onProgress) onProgress({ ...stats, done: true });
-    return { files, stats };
+    return { files, stats: { ...stats, durationMs: tEndScan - tStartScan } };
   }
 
   function splitPartitions(items, count) {
@@ -76,6 +77,7 @@
   }
 
   function mergeTables(acc, incomingTables) {
+    let fieldCount = 0;
     incomingTables.forEach(src => {
       if (!src?.name) return;
       if (!acc.has(src.name)) {
@@ -99,6 +101,7 @@
         if (!dst._f.has(k)) {
           dst.fields.push(f);
           dst._f.add(k);
+          fieldCount++;
         }
       });
       (src.relations || []).forEach(r => {
@@ -109,6 +112,7 @@
         }
       });
     });
+    return fieldCount;
   }
 
   function mergeExtensions(acc, incomingExtensions) {
@@ -144,10 +148,11 @@
     const extensionAcc = new Map();
     const startedAt = performance.now();
     let totalProcessedAcrossWorkers = 0;
+    let totalFieldsAcrossWorkers = 0;
     
     const workerMetrics = [];
 
-    const results = await Promise.all(partitions.map((batch, idx) => {
+    await Promise.all(partitions.map((batch, idx) => {
       return new Promise((resolve) => {
         const worker = new Worker(WORKER_URL);
         const tStartWorker = performance.now();
@@ -155,7 +160,7 @@
         worker.onmessage = (evt) => {
           const msg = evt.data || {};
           if (msg.type === 'batch_result' || msg.type === 'result') {
-            mergeTables(tableAcc, msg.tables || []);
+            totalFieldsAcrossWorkers += mergeTables(tableAcc, msg.tables || []);
             mergeExtensions(extensionAcc, msg.extensions || []);
             
             if (msg.type === 'batch_result') {
@@ -184,7 +189,7 @@
     return {
       tables: finalizeTables(tableAcc),
       extensions: Array.from(extensionAcc.values()),
-      stats: { durationMs: totalDuration, workerMetrics }
+      stats: { durationMs: totalDuration, workerMetrics, totalFields: totalFieldsAcrossWorkers }
     };
   }
 
