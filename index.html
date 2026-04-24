@@ -66,6 +66,7 @@
       <div class="header-actions">
         <span id="graph-node-count" class="graph-count-badge hidden"></span>
         <button class="btn btn-outline btn-sm" id="open-dashboard-btn" title="Análise de metadados"><span class="btn-icon">📊</span><span class="btn-text">Análise</span></button>
+        <button class="btn btn-outline btn-sm" id="open-telemetry-btn" title="Relatório de Performance"><span class="btn-icon">🚀</span><span class="btn-text">Telemetria</span></button>
         <button class="btn btn-outline btn-sm" id="open-settings-btn" title="Configurações"><span class="btn-icon">⚙️</span><span class="btn-text">Config</span></button>
         <button class="btn btn-outline btn-sm" id="shortcuts-help-btn" title="Ver atalhos de teclado"><span class="btn-icon">⌨</span><span class="btn-text">Atalhos</span></button>
         <button class="btn btn-outline btn-sm" id="undo-btn" title="Desfazer última ação" disabled><span class="btn-icon">↩</span><span class="btn-text">Desfazer</span></button>
@@ -440,6 +441,21 @@
           <h5>Tabelas órfãs</h5>
           <div id="dash-orphans"></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="telemetry-modal" class="shortcuts-modal hidden">
+    <div class="shortcuts-modal-inner settings-modal-inner">
+      <div class="shortcuts-modal-header">
+        <h4>🚀 Relatório de Telemetria (Performance)</h4>
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="btn btn-outline btn-sm" id="copy-telemetry-btn">📋 Copiar Texto</button>
+          <button class="btn btn-ghost btn-sm" id="telemetry-close-btn">✕</button>
+        </div>
+      </div>
+      <div class="telemetry-content" id="telemetry-content">
+        <p style="color:var(--text-muted);font-style:italic">Nenhum dado de telemetria disponível. Realize uma importação para gerar o relatório.</p>
       </div>
     </div>
   </div>

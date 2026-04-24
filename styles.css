@@ -1107,3 +1107,50 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
 }
 .alt-route-item:hover { border-color: var(--primary); color: #fff; }
 .alt-route-hops { font-size: 10px; color: #6b7280; margin-right: 6px; font-weight: 700; }
+
+.telemetry-content {
+  background: #0d1117;
+  color: #c9d1d9;
+  padding: 15px;
+  border-radius: 6px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid #30363d;
+}
+
+.telemetry-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 15px;
+  font-size: 12px;
+}
+
+.telemetry-table th, .telemetry-table td {
+  padding: 8px;
+  text-align: left;
+  border-bottom: 1px solid #30363d;
+}
+
+.telemetry-table th {
+  color: #8b949e;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.telemetry-summary-item {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.telemetry-summary-item span:first-child {
+  color: #8b949e;
+}
+
+.telemetry-summary-item span:last-child {
+  color: #58a6ff;
+  font-weight: 600;
+}

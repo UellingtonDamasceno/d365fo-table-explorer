@@ -1,7 +1,7 @@
 /* Browser-native metadata ingestion pipeline */
 (function () {
   const AX_FOLDER_RX = /^AxTable(Extension)?$/i;
-  const WORKER_URL = 'metadata-worker.js?v=20260424f';
+  const WORKER_URL = 'metadata-worker.js?v=20260424g';
 
   const FOLDERS_TO_IGNORE = /^(AxClass|AxForm|AxQuery|AxReport|AxSecurityRole|AxSecurityDuty|AxSecurityPrivilege|AxSecurityPermission|AxMenu|AxMenuItem|AxLabel|AxTile|AxResource|AxEnum|AxEdt|AxWf|AxWorkflow|AxActionPane|AxFormExtension|bin|xppmetadata|descriptor|reports|resources|webfiles|buildproject)$/i;
 
@@ -29,6 +29,7 @@
     const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
     const files = [];
     const stats = { phase: 'scan', dirs: 0, scannedFiles: 0, matchedFiles: 0 };
+    const tStartScan = performance.now();
 
     async function walk(dirHandle, pathParts) {
       stats.dirs += 1;
@@ -57,6 +58,9 @@
       }
     }
     await walk(rootHandle, [rootHandle.name || 'PackagesLocalDirectory']);
+    const tEndScan = performance.now();
+    console.log(`[Metrics] 🔍 Varredura de disco concluída em ${(tEndScan - tStartScan).toFixed(2)}ms`);
+    
     if (onProgress) onProgress({ ...stats, done: true });
     return { files, stats };
   }
@@ -140,10 +144,14 @@
     const extensionAcc = new Map();
     const startedAt = performance.now();
     let totalProcessedAcrossWorkers = 0;
+    
+    const workerMetrics = [];
 
     const results = await Promise.all(partitions.map((batch, idx) => {
       return new Promise((resolve) => {
         const worker = new Worker(WORKER_URL);
+        const tStartWorker = performance.now();
+        
         worker.onmessage = (evt) => {
           const msg = evt.data || {};
           if (msg.type === 'batch_result' || msg.type === 'result') {
@@ -153,20 +161,30 @@
             if (msg.type === 'batch_result') {
               totalProcessedAcrossWorkers += msg.processed;
               if (onProgress) onProgress({ phase: 'parse', processed: totalProcessedAcrossWorkers, total: files.length });
-            } else {
+            } else if (msg.type === 'result') {
+              const tEndWorker = performance.now();
+              workerMetrics.push({
+                workerId: idx,
+                files: msg.processed,
+                errors: msg.errors,
+                totalMs: msg.metrics?.totalMs || (tEndWorker - tStartWorker),
+                avgMs: msg.metrics?.avgMsPerFile || ((tEndWorker - tStartWorker) / msg.processed).toFixed(3)
+              });
               worker.terminate();
               resolve();
             }
           }
         };
-        worker.postMessage({ type: 'parsePartition', workerId: idx, files: batch, batchSize: 1000 });
+        worker.postMessage({ type: 'parsePartition', workerId: idx, files: batch });
       });
     }));
+
+    const totalDuration = performance.now() - startedAt;
 
     return {
       tables: finalizeTables(tableAcc),
       extensions: Array.from(extensionAcc.values()),
-      stats: { durationMs: performance.now() - startedAt }
+      stats: { durationMs: totalDuration, workerMetrics }
     };
   }
 

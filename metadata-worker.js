@@ -246,10 +246,13 @@ function parseByRegex(xmlText, path) {
 
 async function parsePartition(workerId, files) {
   const BATCH_SIZE = 1000;
+  const tStartWorker = performance.now();
   let tableMap = new Map();
   let processed = 0;
   let totalProcessedInBatch = 0;
   let errors = 0;
+
+  console.log(`[Worker ${workerId}] Iniciando partição com ${files.length} arquivos...`);
 
   for (const entry of files) {
     processed += 1;
@@ -266,16 +269,17 @@ async function parsePartition(workerId, files) {
       errors += 1;
     }
 
-    // Se atingir o tamanho do lote, envia para a thread principal e limpa a memória local
     if (totalProcessedInBatch >= BATCH_SIZE) {
+      const tEndBatch = performance.now();
       self.postMessage({
         type: 'batch_result',
         workerId,
         processed: totalProcessedInBatch,
         errors,
-        tables: finalizeAggTables(tableMap)
+        tables: finalizeAggTables(tableMap),
+        durationMs: tEndBatch - tStartWorker // Tempo acumulado até aqui
       });
-      tableMap = new Map(); // Libera RAM IMEDIATAMENTE
+      tableMap = new Map();
       totalProcessedInBatch = 0;
       errors = 0;
     } else if (processed % 100 === 0) {
@@ -283,14 +287,20 @@ async function parsePartition(workerId, files) {
     }
   }
 
-  // Envio do último lote remanescente
+  const tEndWorker = performance.now();
+  const totalDuration = tEndWorker - tStartWorker;
+  
   self.postMessage({
     type: 'result',
     workerId,
     processed,
     errors,
     tables: finalizeAggTables(tableMap),
-    extensions: [] 
+    extensions: [],
+    metrics: {
+      totalMs: totalDuration,
+      avgMsPerFile: (totalDuration / processed).toFixed(3)
+    }
   });
 }
 

@@ -25,6 +25,7 @@ let autoZoomFontEnabled = true;
 let selectedFieldsByTable = {};
 let whileSelectMode = false;
 let lastImportInfo = null;
+let lastIngestionTelemetry = null;
 
 const DEFAULT_CONFIG = window.D365State?.DEFAULT_CONFIG || {
   layout: 'cose',
@@ -264,6 +265,15 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Metadata dashboard
   document.getElementById('open-dashboard-btn').addEventListener('click', openMetadataDashboard);
+  document.getElementById('open-telemetry-btn').addEventListener('click', openTelemetryModal);
+  document.getElementById('telemetry-close-btn').addEventListener('click', () => 
+    document.getElementById('telemetry-modal').classList.add('hidden'));
+  document.getElementById('copy-telemetry-btn').addEventListener('click', copyTelemetryToClipboard);
+  document.getElementById('telemetry-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('telemetry-modal'))
+      document.getElementById('telemetry-modal').classList.add('hidden');
+  });
+
   document.getElementById('dash-use-sidebar-filter').addEventListener('change', e => {
     appConfig.dashboardUseSidebarFilter = e.target.checked;
     const cfg = document.getElementById('cfg-dashboard-filter');
@@ -562,6 +572,17 @@ async function importFromDirectory() {
 
     const tEndTotal = performance.now();
     const totalTimeSec = ((tEndTotal - tStartTotal) / 1000).toFixed(2);
+    
+    // Captura telemetria para o modal
+    lastIngestionTelemetry = {
+      totalTimeSec,
+      fileCount: scan.files.length,
+      tableCount: parsed.tables.length,
+      workerMetrics: parsed.stats?.workerMetrics || [],
+      scanTimeMs: tEndScan - tStartScan,
+      parseTimeMs: tEndTotal - tEndScan
+    };
+
     setIngestionProgress({ phase: 'done', message: `Importação concluída: ${parsed.tables.length.toLocaleString()} tabelas em ${totalTimeSec}s` });
     init({ tables: parsed.tables });
   } catch (err) {
@@ -2600,3 +2621,73 @@ function importGraph(file) {
     document.body.style.userSelect = '';
   });
 })();
+
+// ── TELEMETRY (PERFORMANCE REPORT) ────────────────────────────────
+function openTelemetryModal() {
+  const modal = document.getElementById('telemetry-modal');
+  const content = document.getElementById('telemetry-content');
+  if (!modal || !content) return;
+
+  if (!lastIngestionTelemetry) {
+    content.innerHTML = '<p style="color:var(--text-muted);font-style:italic">Nenhum dado de telemetria disponível. Realize uma importação para gerar o relatório.</p>';
+  } else {
+    const t = lastIngestionTelemetry;
+    const workerRows = t.workerMetrics.map(m => `
+      <tr>
+        <td>Worker ${m.workerId}</td>
+        <td>${m.files.toLocaleString()}</td>
+        <td>${m.errors}</td>
+        <td>${m.totalMs.toFixed(2)}ms</td>
+        <td>${m.avgMs}ms</td>
+      </tr>`).join('');
+
+    content.innerHTML = `
+      <div class="telemetry-summary">
+        <div class="telemetry-summary-item"><span>Tempo Total:</span><span>${t.totalTimeSec}s</span></div>
+        <div class="telemetry-summary-item"><span>Varredura de Disco:</span><span>${(t.scanTimeMs / 1000).toFixed(2)}s</span></div>
+        <div class="telemetry-summary-item"><span>Parsing/Merge XML:</span><span>${(t.parseTimeMs / 1000).toFixed(2)}s</span></div>
+        <div class="telemetry-summary-item"><span>Total de Arquivos:</span><span>${t.fileCount.toLocaleString()}</span></div>
+        <div class="telemetry-summary-item"><span>Vazão Média:</span><span>${(t.fileCount / t.totalTimeSec).toFixed(2)} f/s</span></div>
+      </div>
+      <table class="telemetry-table">
+        <thead>
+          <tr>
+            <th>Thread</th>
+            <th>Arquivos</th>
+            <th>Erros</th>
+            <th>CPU Total</th>
+            <th>Média/Arquivo</th>
+          </tr>
+        </thead>
+        <tbody>${workerRows}</tbody>
+      </table>
+    `;
+  }
+  modal.classList.remove('hidden');
+}
+
+function copyTelemetryToClipboard() {
+  if (!lastIngestionTelemetry) return;
+  const t = lastIngestionTelemetry;
+  const workers = t.workerMetrics.map(m => `Thread ${m.workerId}: ${m.files} files, ${m.errors} errors, CPU ${m.totalMs.toFixed(2)}ms, Avg ${m.avgMs}ms/f`).join('\n');
+  const report = `--- D365FO TABLE EXPLORER PERFORMANCE REPORT ---
+Timestamp: ${new Date().toISOString()}
+Total Time: ${t.totalTimeSec}s
+Scan Time: ${(t.scanTimeMs / 1000).toFixed(2)}s
+Parse Time: ${(t.parseTimeMs / 1000).toFixed(2)}s
+Total Files: ${t.fileCount}
+Unique Tables: ${t.tableCount}
+Avg Throughput: ${(t.fileCount / t.totalTimeSec).toFixed(2)} files/sec
+
+WORKER METRICS:
+${workers}
+-----------------------------------------------`;
+  
+  navigator.clipboard.writeText(report).then(() => {
+    const btn = document.getElementById('copy-telemetry-btn');
+    const oldText = btn.textContent;
+    btn.textContent = '✅ Copiado!';
+    setTimeout(() => btn.textContent = oldText, 2000);
+  });
+}
+
