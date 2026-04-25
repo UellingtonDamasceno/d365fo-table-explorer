@@ -724,9 +724,20 @@ function init(data) {
   ALL_TABLES.forEach(t => {
     if (!t.name)       t.name       = '(sem nome)';
     if (!t.tableGroup) t.tableGroup = 'None';
+    t.primaryIndex = String(t.primaryIndex || '');
+    t.clusteredIndex = String(t.clusteredIndex || '');
     if (!t.model) t.model = (Array.isArray(t.models) && t.models[0]) ? t.models[0] : 'Unknown';
     if (!Array.isArray(t.models) || !t.models.length) t.models = [t.model];
     t.models = [...new Set(t.models.map(m => String(m || '').trim()).filter(Boolean))];
+
+    if (!Array.isArray(t.indexes)) t.indexes = [];
+    t.indexes = t.indexes.map(idx => ({
+      name: String(idx?.name || ''),
+      fields: Array.isArray(idx?.fields) ? idx.fields.map(String) : [],
+      allowDuplicates: !!idx?.allowDuplicates,
+      isPrimary: String(idx?.name || '').toLowerCase() === t.primaryIndex.toLowerCase(),
+      isClustered: String(idx?.name || '').toLowerCase() === t.clusteredIndex.toLowerCase(),
+    })).filter(idx => idx.name);
 
     if (!Array.isArray(t.fields)) t.fields = [];
     t.fields = t.fields
@@ -1668,7 +1679,13 @@ function renderFilters(t) {
   // 2. Render Indexes
   const indexes = t.indexes || [];
   indexSelect.innerHTML = '<option value="">Nenhum índice selecionado</option>' +
-    indexes.map(idx => `<option value="${esc(idx.name)}" ${orderBy.indexName === idx.name ? 'selected' : ''}>Índice: ${esc(idx.name)} (${idx.fields.join(', ')})</option>`).join('');
+    indexes.map(idx => {
+      const labels = [];
+      if (idx.isPrimary) labels.push('PK');
+      if (idx.isClustered) labels.push('Clustered');
+      const labelStr = labels.length ? ` [${labels.join(', ')}]` : '';
+      return `<option value="${esc(idx.name)}" ${orderBy.indexName === idx.name ? 'selected' : ''}>${esc(idx.name)}${labelStr} (${idx.fields.join(', ')})</option>`;
+    }).join('');
 
   // 3. Listeners
   const fieldNames = t.fields.map(f => f.name);

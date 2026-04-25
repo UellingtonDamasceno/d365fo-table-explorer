@@ -14,7 +14,7 @@
     if (!isSupported()) return null;
     if (db) return db;
     db = new window.Dexie(DB_NAME);
-    db.version(1).stores({
+    db.version(2).stores({
       tables: '&name, tableGroup, model, *models, *fieldNames, *relatedTables, updatedAt',
       extensions: '[tableName+model], tableName, model, updatedAt',
       meta: '&key',
@@ -68,12 +68,21 @@
           relMap.set(key, r);
         });
 
+        // Merge de índices (deduplicado por nome)
+        const indexMap = new Map();
+        [...(base.indexes || []), ...(incoming.indexes || [])].forEach(idx => {
+          if (idx.name) indexMap.set(idx.name.toLowerCase(), idx);
+        });
+
         return normalizeTable({
           ...base,
           tableGroup: (incoming.tableGroup !== 'None') ? incoming.tableGroup : base.tableGroup,
+          primaryIndex: incoming.primaryIndex || base.primaryIndex || '',
+          clusteredIndex: incoming.clusteredIndex || base.clusteredIndex || '',
           models: mergedModels,
           fields: Array.from(fieldMap.values()),
           relations: Array.from(relMap.values()),
+          indexes: Array.from(indexMap.values()),
         });
       });
 

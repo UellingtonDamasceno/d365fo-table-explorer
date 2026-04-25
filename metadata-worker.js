@@ -1,10 +1,53 @@
 /* Worker: parse D365FO AxTable/AxTableExtension XML partitions */
 
-// Utility: Extract value of a tag
+// Utility: Extract value of a tag using indexOf for performance on large files
 function extractTagValue(tag, xml) {
-  const rx = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
-  const m = xml.match(rx);
-  return m ? m[1].trim() : '';
+  if (!xml) return '';
+  const startTagPrefix = `<${tag}`;
+  const endTag = `</${tag}>`;
+  
+  const sIdx = xml.indexOf(startTagPrefix);
+  if (sIdx === -1) return '';
+  
+  const contentStart = xml.indexOf('>', sIdx);
+  if (contentStart === -1) return '';
+  
+  // Check if self-closing
+  if (xml[contentStart - 1] === '/') return '';
+
+  const eIdx = xml.indexOf(endTag, contentStart);
+  if (eIdx === -1) return '';
+  
+  return xml.substring(contentStart + 1, eIdx).trim();
+}
+
+// Utility: Extract multiple blocks of the same tag
+function extractBlocks(tag, xml) {
+  if (!xml) return [];
+  const blocks = [];
+  const startTagPrefix = `<${tag}`;
+  const endTag = `</${tag}>`;
+  let pos = 0;
+  
+  while (true) {
+    const sIdx = xml.indexOf(startTagPrefix, pos);
+    if (sIdx === -1) break;
+    
+    const contentStart = xml.indexOf('>', sIdx);
+    if (contentStart === -1) break;
+    
+    if (xml[contentStart - 1] === '/') {
+      pos = contentStart + 1;
+      continue;
+    }
+
+    const eIdx = xml.indexOf(endTag, contentStart);
+    if (eIdx === -1) break;
+    
+    blocks.push(xml.substring(sIdx, eIdx + endTag.length));
+    pos = eIdx + endTag.length;
+  }
+  return blocks;
 }
 
 // Utility: Clean CDATA and inner tags
@@ -48,6 +91,8 @@ function createAggTable(name) {
   return {
     name,
     tableGroup: 'None',
+    primaryIndex: '',
+    clusteredIndex: '',
     model: '',
     models: new Set(),
     fields: [],
@@ -74,6 +119,9 @@ function mergeFragment(tableMap, fragment) {
   const model = fragment.model || 'Unknown';
 
   if (fragment.tableGroup && fragment.tableGroup !== 'None' && table.tableGroup === 'None') table.tableGroup = fragment.tableGroup;
+  if (fragment.primaryIndex && !table.primaryIndex) table.primaryIndex = fragment.primaryIndex;
+  if (fragment.clusteredIndex && !table.clusteredIndex) table.clusteredIndex = fragment.clusteredIndex;
+
   if (!fragment.isExtension && model && !table.model) table.model = model;
   table.models.add(model);
   (fragment.models || []).forEach(m => table.models.add(m));
@@ -156,6 +204,8 @@ function finalizeAggTables(tableMap) {
     out.push({
       name: t.name,
       tableGroup: t.tableGroup || 'None',
+      primaryIndex: t.primaryIndex || '',
+      clusteredIndex: t.clusteredIndex || '',
       model,
       models: models.length ? models : [model],
       fields,
@@ -183,35 +233,30 @@ function parseByRegex(xmlText, path) {
   const hasExtRoot = /<\s*AxTableExtension(?:\s|>)/i.test(xmlText);
   const hasBaseRoot = /<\s*AxTable(?:\s|>)/i.test(xmlText);
   if (!hasExtRoot && !hasBaseRoot) return null;
-  const isExt = hasExtRoot || (!hasBaseRoot && ctx.isExtension);
-  const rootPattern = isExt
-    ? /<\s*AxTableExtension[\s\S]*<\/\s*AxTableExtension\s*>/i
-    : /<\s*AxTable[\s\S]*<\/\s*AxTable\s*>/i;
-  const rootMatch = xmlText.match(rootPattern);
-  const rootXml = rootMatch ? rootMatch[0] : xmlText;
   
-  // 1. Object Name
-  const nameMatch = rootXml.match(/<Name[^>]*>([\s\S]*?)<\/Name>/i);
-  const objectName = nameMatch ? cleanValue(nameMatch[1]) : fileNameNoExt(path);
+  const isExt = hasExtRoot || (!hasBaseRoot && ctx.isExtension);
+  const model = ctx.model || 'Unknown';
+
+  // 1. Basic properties
+  const objectName = extractTagValue('Name', xmlText) || fileNameNoExt(path);
   const baseName = isExt && objectName.includes('.') ? objectName.split('.')[0] : objectName;
   if (!baseName) return null;
 
-  const model = ctx.model || 'Unknown';
-  const tableGroup = !isExt ? (extractTagValue('TableGroup', rootXml) || 'None') : 'None';
+  const tableGroup = !isExt ? (extractTagValue('TableGroup', xmlText) || 'None') : 'None';
+  const primaryIndex = !isExt ? extractTagValue('PrimaryIndex', xmlText) : '';
+  const clusteredIndex = !isExt ? extractTagValue('ClusteredIndex', xmlText) : '';
 
-  // 2. Extract Fields (GLOBAL SEARCH)
-  // Lookahead negativo (?!\w) garante que não capturemos AxTableFieldGroupField
-  const fieldBlocks = rootXml.match(/<AxTableField(?!\w)[\s\S]*?<\/AxTableField>/gi) || [];
-  const fields = fieldBlocks.map(fb => {
-    const fNameMatch = fb.match(/<Name[^>]*>([\s\S]*?)<\/Name>/i);
-    const fName = fNameMatch ? cleanValue(fNameMatch[1]) : '';
+  // 2. Extract Fields
+  const fields = extractBlocks('AxTableField', xmlText).map(fb => {
+    const fName = extractTagValue('Name', fb);
     if (!fName) return null;
 
+    let type = '';
     const typeMatch = fb.match(/(?:i:type|type)="([^"]+)"/i);
-    let type = typeMatch ? typeMatch[1] : '';
-    if (!type) {
-       const tagMatch = fb.match(/<AxTableField(\w+)/i);
-       if (tagMatch && tagMatch[1]) type = 'AxTableField' + tagMatch[1];
+    if (typeMatch) type = typeMatch[1];
+    else {
+      const tagMatch = fb.match(/<AxTableField(\w+)/i);
+      if (tagMatch && tagMatch[1]) type = 'AxTableField' + tagMatch[1];
     }
 
     return {
@@ -223,22 +268,19 @@ function parseByRegex(xmlText, path) {
     };
   }).filter(Boolean);
 
-  // 3. Extract Relations (GLOBAL SEARCH)
-  // Ignora restrições e outros sufixos
-  const relBlocks = rootXml.match(/<AxTableRelation(?!\w)[\s\S]*?<\/AxTableRelation>/gi) || [];
-  const relations = relBlocks.map(rb => {
+  // 3. Extract Relations
+  const relations = extractBlocks('AxTableRelation', xmlText).map(rb => {
     const relTable = extractTagValue('RelatedTable', rb);
     if (!relTable) return null;
 
-    const constraints = [];
-    const constBlocks = rb.match(/<AxTableRelationConstraint(?!\w)[\s\S]*?<\/AxTableRelationConstraint>/gi) || [];
-    constBlocks.forEach(cb => {
-      if (/(?:i:type|type)\s*=\s*"AxTableRelationConstraintField"/i.test(cb) || /AxTableRelationConstraintField/i.test(cb)) {
+    const constraints = extractBlocks('AxTableRelationConstraint', rb).map(cb => {
+      if (cb.includes('AxTableRelationConstraintField')) {
         const f = extractTagValue('Field', cb);
         const rf = extractTagValue('RelatedField', cb);
-        if (f && rf) constraints.push({ field: f, relatedField: rf });
+        if (f && rf) return { field: f, relatedField: rf };
       }
-    });
+      return null;
+    }).filter(Boolean);
 
     if (constraints.length === 0) return null;
 
@@ -253,22 +295,36 @@ function parseByRegex(xmlText, path) {
     };
   }).filter(Boolean);
 
+  // 4. Extract Indexes
+  const indexes = extractBlocks('AxTableIndex', xmlText).map(ib => {
+    const idxName = extractTagValue('Name', ib);
+    if (!idxName) return null;
+    
+    const allowDuplicates = extractTagValue('AllowDuplicates', ib) === 'Yes';
+    const indexFields = extractBlocks('AxTableIndexField', ib)
+      .map(ifb => {
+        const isIncluded = extractTagValue('IncludedColumn', ifb) === 'Yes';
+        if (isIncluded) return null;
+        return extractTagValue('DataField', ifb);
+      })
+      .filter(Boolean);
+
+    if (indexFields.length === 0) return null;
+
+    return { name: idxName, fields: indexFields, allowDuplicates };
+  }).filter(Boolean);
+
   return {
     name: baseName,
     isExtension: isExt,
     model,
     models: [model],
     tableGroup,
+    primaryIndex,
+    clusteredIndex,
     fields,
     relations,
-    indexes: (rootXml.match(/<AxTableIndex(?!\w)[\s\S]*?<\/AxTableIndex>/gi) || []).map(ib => {
-      const idxName = extractTagValue('Name', ib);
-      const allowDuplicates = extractTagValue('AllowDuplicates', ib) === 'Yes';
-      const fields = (ib.match(/<AxTableIndexField(?!\w)[\s\S]*?<\/AxTableIndexField>/gi) || []).map(ifb => 
-        extractTagValue('DataField', ifb)
-      ).filter(Boolean);
-      return idxName ? { name: idxName, fields, allowDuplicates } : null;
-    }).filter(Boolean)
+    indexes
   };
 }
 

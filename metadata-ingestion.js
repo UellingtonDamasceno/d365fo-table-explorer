@@ -82,16 +82,22 @@
         acc.set(src.name, {
           name: src.name,
           tableGroup: 'None',
+          primaryIndex: '',
+          clusteredIndex: '',
           model: src.model,
           models: new Set(),
           fields: [],
           relations: [],
+          indexes: [],
           _f: new Set(),
-          _r: new Set()
+          _r: new Set(),
+          _idx: new Set()
         });
       }
       const dst = acc.get(src.name);
       if (src.tableGroup && src.tableGroup !== 'None' && dst.tableGroup === 'None') dst.tableGroup = src.tableGroup;
+      if (src.primaryIndex && !dst.primaryIndex) dst.primaryIndex = src.primaryIndex;
+      if (src.clusteredIndex && !dst.clusteredIndex) dst.clusteredIndex = src.clusteredIndex;
       dst.models.add(src.model);
 
       (src.fields || []).forEach(f => {
@@ -107,6 +113,13 @@
         if (!dst._r.has(k)) {
           dst.relations.push(r);
           dst._r.add(k);
+        }
+      });
+      (src.indexes || []).forEach(idx => {
+        const k = (idx.name || '').toLowerCase();
+        if (k && !dst._idx.has(k)) {
+          dst.indexes.push(idx);
+          dst._idx.add(k);
         }
       });
     });
@@ -133,7 +146,8 @@
       ...t,
       models: Array.from(t.models),
       fieldNames: t.fields.map(f => f.name),
-      relatedTables: [...new Set(t.relations.map(r => r.relatedTable))]
+      relatedTables: [...new Set(t.relations.map(r => r.relatedTable))],
+      indexes: t.indexes || []
     }));
   }
 
