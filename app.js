@@ -1647,6 +1647,29 @@ function clearShiftPath() {
   updateShiftPathDisplay();
 }
 
+function getFieldTypeCategory(f) {
+  if (!f) return 'string';
+  const type = (f.type || '').replace('AxTableField', '');
+  const edt = (f.extendedDataType || f.edt || '').toLowerCase();
+  const enumType = (f.enumType || '').toLowerCase();
+
+  if (type === 'Enum' || enumType === 'noyes' || edt === 'noyesid') return 'enum';
+  if (['Int', 'Int64', 'Real'].includes(type)) return 'numeric';
+  if (type === 'Date') return 'date';
+  if (type === 'DateTime') return 'datetime';
+  if (type === 'Container') return 'container';
+  return 'string';
+}
+
+function getOperatorsForType(category) {
+  const common = ['==', '!=', 'in'];
+  const compare = ['>', '<', '>=', '<='];
+  if (category === 'numeric' || category === 'date' || category === 'datetime') return [...common, ...compare];
+  if (category === 'string') return [...common, 'like'];
+  if (category === 'enum') return ['==', '!='];
+  return common;
+}
+
 // ── FILTERS ────────────────────────────────────────────────────────
 function renderFilters(t) {
   const container = document.getElementById('filter-conditions-list');
@@ -1657,7 +1680,33 @@ function renderFilters(t) {
   const orderBy = tableOrderByByTable[t.name] || { indexName: '', manualFields: [] };
 
   // 1. Render Conditions
-  container.innerHTML = filters.map((f, i) => `
+  container.innerHTML = filters.map((f, i) => {
+    const fieldInfo = t.fields.find(fld => fld.name === f.field);
+    const category = getFieldTypeCategory(fieldInfo);
+    const ops = getOperatorsForType(category);
+    
+    let valueInputHtml = '';
+    if (category === 'enum') {
+      const isNoYes = (fieldInfo?.enumType || '').toLowerCase() === 'noyes' || (fieldInfo?.extendedDataType || '').toLowerCase() === 'noyesid';
+      if (isNoYes) {
+        valueInputHtml = `<select class="f-val">
+          <option value="NoYes::No" ${f.value.includes('No') ? 'selected' : ''}>No</option>
+          <option value="NoYes::Yes" ${f.value.includes('Yes') ? 'selected' : ''}>Yes</option>
+        </select>`;
+      } else {
+        valueInputHtml = `<input type="text" class="f-val" value="${esc(f.value)}" placeholder="Enum value..." />`;
+      }
+    } else if (category === 'date') {
+      valueInputHtml = `<input type="date" class="f-val" value="${esc(f.value)}" />`;
+    } else if (category === 'datetime') {
+      valueInputHtml = `<input type="datetime-local" class="f-val" value="${esc(f.value)}" />`;
+    } else if (category === 'numeric') {
+      valueInputHtml = `<input type="number" class="f-val" value="${esc(f.value)}" step="any" placeholder="0.00" />`;
+    } else {
+      valueInputHtml = `<input type="text" class="f-val" value="${esc(f.value)}" placeholder="${category === 'container' ? 'val1, val2...' : 'Valor...'}" autocomplete="off" />`;
+    }
+
+    return `
     <div class="filter-group" data-idx="${i}">
       <div class="filter-group-row">
         ${i > 0 ? `
@@ -1667,26 +1716,21 @@ function renderFilters(t) {
           </select>
         ` : ''}
         <div class="autocomplete-wrapper f-field-wrapper">
-          <input type="text" class="f-field" value="${esc(f.field)}" placeholder="Campo (ex: RecId)..." autocomplete="off" />
+          <input type="text" class="f-field" value="${esc(f.field)}" placeholder="Campo..." autocomplete="off" />
         </div>
         <button class="btn btn-ghost btn-xs remove-filter-btn" title="Remover filtro">✕</button>
       </div>
 
       <div class="filter-group-row">
         <select class="f-op">
-          <option value="==" ${f.op === '==' ? 'selected' : ''}>==</option>
-          <option value="!=" ${f.op === '!=' ? 'selected' : ''}>!=</option>
-          <option value="&gt;" ${f.op === '>' ? 'selected' : ''}>&gt;</option>
-          <option value="&lt;" ${f.op === '<' ? 'selected' : ''}>&lt;</option>
-          <option value="in" ${f.op === 'in' ? 'selected' : ''}>in</option>
-          <option value="like" ${f.op === 'like' ? 'selected' : ''}>like</option>
+          ${ops.map(o => `<option value="${o}" ${f.op === o ? 'selected' : ''}>${o.replace('>', '&gt;').replace('<', '&lt;')}</option>`).join('')}
         </select>
-        <input type="text" class="f-val" value="${esc(f.value)}" placeholder="Valor..." autocomplete="off" />
+        ${valueInputHtml}
       </div>
     </div>
-  `).join('');
+  `; }).join('');
 
-  // 2. Render Indexes
+  // 2. Render Indexes (unchanged)
   const indexes = t.indexes || [];
   indexSelect.innerHTML = '<option value="">Nenhum índice selecionado</option>' +
     indexes.map(idx => {
@@ -1702,16 +1746,25 @@ function renderFilters(t) {
   container.querySelectorAll('.filter-group').forEach(row => {
     const idx = parseInt(row.dataset.idx);
     const fInp = row.querySelector('.f-field');
+    const opInp = row.querySelector('.f-op');
+    const valInp = row.querySelector('.f-val');
+
     const update = () => {
       const logicEl = row.querySelector('.f-logic');
       if (logicEl) filters[idx].logic = logicEl.value;
+      
+      const oldField = filters[idx].field;
       filters[idx].field = fInp.value;
-      filters[idx].op    = row.querySelector('.f-op').value;
-      filters[idx].value = row.querySelector('.f-val').value;
+      filters[idx].op    = opInp.value;
+      filters[idx].value = valInp.value;
       tableFiltersByTable[t.name] = filters;
+
+      // If field changed, re-render to update operators and input type
+      if (oldField !== fInp.value) {
+        renderFilters(t);
+      }
     };
     
-    // Autocomplete for field
     D365Autocomplete.create(fInp, {
       getSuggestions: (q) => {
         const low = q.toLowerCase();
@@ -1724,10 +1777,11 @@ function renderFilters(t) {
     });
 
     row.querySelectorAll('select, input').forEach(el => el.addEventListener('change', update));
-    row.querySelector('.f-val').addEventListener('input', update);
+    if (valInp.tagName === 'INPUT') valInp.addEventListener('input', update);
+    
     row.querySelector('.remove-filter-btn').addEventListener('click', () => {
       filters.splice(idx, 1);
-      if (filters.length > 0) filters[0].logic = ''; // clear first logic
+      if (filters.length > 0) filters[0].logic = '';
       tableFiltersByTable[t.name] = filters;
       renderFilters(t);
     });
@@ -1953,14 +2007,147 @@ function getWhereClause(tableName, alias, lang = 'sql') {
   const filters = tableFiltersByTable[tableName] || [];
   if (!filters.length) return '';
   const logicOp = lang === 'sql' ? 'AND' : '&&';
+  
+  const t = tableIndex[tableName];
+  
   const parts = filters.map((f, i) => {
-    let val = f.value;
-    const isNumeric = /^-?\d+(\.\d+)?$/.test(val);
-    if (!isNumeric && val !== '' && !val.startsWith("'") && f.op !== 'in') val = `'${val}'`;
+    const fieldInfo = t?.fields?.find(fld => fld.name === f.field);
+    const category = getFieldTypeCategory(fieldInfo);
     
+    let val = f.value;
     let op = f.op;
-    if (lang === 'xpp' && op === '==') op = '==';
-    if (lang === 'sql' && op === '==') op = '=';
+
+    if (lang === 'xpp') {
+      if (category === 'enum') {
+        // Ok
+      } else if (category === 'date' && val) {
+        val = `str2Date('${val}', 321)`;
+      } else if (category === 'datetime' && val) {
+        val = `DateTimeUtil::parse('${val.replace('T', ' ')}:00')`;
+      } else if (category === 'numeric') {
+        val = val || '0';
+      } else if (op === 'in') {
+        val = `con${f.field}${i}`;
+      } else {
+        val = `'${val.replace(/'/g, "''")}'`;
+      }
+      if (op === '==') op = '==';
+    } else {
+      if (category === 'numeric') {
+        val = val || '0';
+      } else if (category === 'enum') {
+        val = val.includes('::') ? (val.split('::')[1] === 'Yes' ? '1' : '0') : val;
+      } else if (op === 'in') {
+        const list = val.split(',').map(x => x.trim()).filter(Boolean);
+        val = `(${list.map(x => isNaN(x) ? `'${x.replace(/'/g, "''")}'` : x).join(', ')})`;
+      } else {
+        val = `'${val.replace(/'/g, "''")}'`;
+      }
+      if (op === '==') op = '=';
+    }
+
+    const fieldPrefix = alias ? `${alias}.` : '';
+    const prefix = i > 0 ? `\n    <span class="kw">${f.logic || logicOp}</span> ` : '';
+    return `${prefix}${fieldPrefix}${f.field} ${op} ${val}`;
+  });
+  return parts.join('');
+}
+
+function getOrderByClause(tableName, alias, lang = 'sql') {
+  const orderBy = tableOrderByByTable[tableName];
+  if (!orderBy || !orderBy.indexName) return '';
+  const t = tableIndex[tableName];
+  const idx = t?.indexes?.find(i => i.name === orderBy.indexName);
+  if (!idx || !idx.fields.length) return '';
+  const fieldPrefix = alias ? `${alias}.` : '';
+  const kw = lang === 'sql' ? 'ORDER BY' : 'order by';
+  return `${kw} ` + idx.fields.map(f => `${fieldPrefix}${f}`).join(', ');
+}
+
+function genSimpleQuery() {
+  if (!currentDetail) return;
+  const t = currentDetail;
+  const alias = tableAlias(t.name);
+  const selected = getSqlProjection(t.name, alias);
+  const topFields = selected.map(f => `    ${f}`).join(',\n');
+  const xppPicked = getSelectedFields(t.name);
+  const xppSelectExpr = xppPicked.length ? xppPicked.join(', ') : alias;
+
+  const whereSql = getWhereClause(t.name, alias, 'sql');
+  const orderSql = getOrderByClause(t.name, alias, 'sql');
+  const sql = `<span class="kw">SELECT</span>\n${topFields}\n<span class="kw">FROM</span> <span class="tbl">${t.name}</span> <span class="kw">AS</span> <span class="tbl">${alias}</span>${whereSql ? `\n<span class="kw">WHERE</span> ${whereSql}` : ''}${orderSql ? `\n<span class="kw">${orderSql}</span>` : ''}`;
+  
+  const whereXpp = getWhereClause(t.name, alias, 'xpp');
+  const orderXpp = getOrderByClause(t.name, alias, 'xpp');
+  let containerDecl = '';
+  const filters = tableFiltersByTable[t.name] || [];
+  filters.forEach((f, i) => {
+    if (f.op === 'in') {
+      const vals = f.value.split(',').map(x => x.trim()).filter(Boolean);
+      const conContent = vals.map(v => isNaN(v) ? `'${v}'` : v).join(', ');
+      containerDecl += `<span class="kw">container</span> con${f.field}${i} = [${conContent}];\n`;
+    }
+  });
+
+  const xpp = `${containerDecl ? `<span class="cm">// Declaration</span>\n${containerDecl}\n` : ''}<span class="kw">select</span> ${esc(xppSelectExpr)}\n    <span class="kw">from</span> <span class="tbl">${t.name}</span>${whereXpp ? `\n    <span class="kw">where</span> ${whereXpp}` : ''}${orderXpp ? `\n    <span class="kw">${orderXpp}</span>` : ''};`;
+
+  document.getElementById('sql-output').innerHTML = sql;
+  document.getElementById('xpp-output').innerHTML = xpp;
+  document.getElementById('query-path-label').textContent = `Tabela: ${t.name}`;
+  document.getElementById('toggle-while-select-btn').classList.add('hidden');
+  document.getElementById('query-hint').classList.add('hidden');
+  document.getElementById('query-accordion').classList.add('hidden');
+  document.getElementById('query-output').classList.remove('hidden');
+  switchTab('query');
+}
+
+
+function getWhereClause(tableName, alias, lang = 'sql') {
+  const filters = tableFiltersByTable[tableName] || [];
+  if (!filters.length) return '';
+  const logicOp = lang === 'sql' ? 'AND' : '&&';
+  
+  const t = tableIndex[tableName];
+  
+  const parts = filters.map((f, i) => {
+    const fieldInfo = t?.fields?.find(fld => fld.name === f.field);
+    const category = getFieldTypeCategory(fieldInfo);
+    
+    let val = f.value;
+    let op = f.op;
+
+    // Type-specific formatting
+    if (lang === 'xpp') {
+      if (category === 'enum') {
+        // Formatted as Enum::Value in select
+      } else if (category === 'date' && val) {
+        val = `str2Date('${val}', 321)`;
+      } else if (category === 'datetime' && val) {
+        val = `DateTimeUtil::parse('${val.replace('T', ' ')}:00')`;
+      } else if (category === 'numeric') {
+        val = val || '0';
+      } else if (op === 'in') {
+        val = `con${f.field}${i}`; 
+      } else {
+        val = `'${val.replace(/'/g, "''")}'`;
+      }
+      if (op === '==') op = '==';
+    } else {
+      // SQL formatting
+      if (category === 'numeric') {
+        val = val || '0';
+      } else if (category === 'enum') {
+        val = val.includes('::') ? (val.split('::')[1] === 'Yes' ? '1' : '0') : val;
+      } else if (op === 'in') {
+        const list = val.split(',').map(x => x.trim()).filter(Boolean);
+        val = `(${list.map(x => isNaN(x) ? `'${x.replace(/'/g, "''")}'` : x).join(', ')})`;
+      } else if (op === 'like') {
+        val = `'${val.replace(/'/g, "''")}'`;
+      } else {
+        val = `'${val.replace(/'/g, "''")}'`;
+      }
+      if (op === '==') op = '=';
+    }
 
     const fieldPrefix = alias ? `${alias}.` : '';
     const prefix = i > 0 ? `\n    <span class="kw">${f.logic || logicOp}</span> ` : '';
@@ -2526,7 +2713,6 @@ function renderQueryAccordion(path) {
     explicit = prioritize(explicit);
     if (explicit.length > 0) return { constraints: explicit, inferred: false };
 
-    // Join by relation name fallback: try finding relation in source metadata by relation.name
     if (rel?.name) {
       const sourceRels = tableIndex[prevTable]?.relations || [];
       const byName = sourceRels.find(r => r.name === rel.name && r.relatedTable === nextTable);
@@ -2546,7 +2732,6 @@ function renderQueryAccordion(path) {
     const projection = subPath.flatMap(step => getSqlProjection(step.table, aliases[step.table]));
     let sqlLines = [`<span class="kw">SELECT</span> ${projection.map(p => `<span class="fld">${esc(p)}</span>`).join(', ')}\n<span class="kw">FROM</span>  <span class="tbl">${first.table}</span> <span class="kw">AS</span> <span class="tbl">${aliases[first.table]}</span>`];
     
-    // Jointuras
     for (let i = 1; i < subPath.length; i++) {
       const step = subPath[i];
       const a = aliases[step.table];
@@ -2569,13 +2754,11 @@ function renderQueryAccordion(path) {
       sqlLines.push(`    <span class="kw">INNER JOIN</span> <span class="tbl">${step.table}</span> <span class="kw">AS</span> <span class="tbl">${a}</span>\n        <span class="kw">ON</span> ${joinConds.join('\n        <span class="kw">AND</span> ')}`);
     }
 
-    // Filtros globais (WHERE) de todas as tabelas no path
     const whereParts = subPath.map(step => getWhereClause(step.table, aliases[step.table], 'sql')).filter(Boolean);
     if (whereParts.length > 0) {
       sqlLines.push(`<span class="kw">WHERE</span> ${whereParts.join('\n  <span class="kw">AND</span> ')}`);
     }
 
-    // Ordenação (apenas da última tabela ou combinada - simplificado para última com índice)
     const lastStep = subPath[subPath.length - 1];
     const orderSql = getOrderByClause(lastStep.table, aliases[lastStep.table], 'sql');
     if (orderSql) sqlLines.push(`<span class="kw">${orderSql}</span>`);
@@ -2585,14 +2768,27 @@ function renderQueryAccordion(path) {
 
   function buildXppForPath(subPath) {
     const aliases = buildAliasMap(subPath);
+    const containerDecls = [];
+    subPath.forEach(step => {
+      const filters = tableFiltersByTable[step.table] || [];
+      filters.forEach((f, i) => {
+        if (f.op === 'in') {
+          const vals = f.value.split(',').map(x => x.trim()).filter(Boolean);
+          const conContent = vals.map(v => isNaN(v) ? `'${v}'` : v).join(', ');
+          containerDecls.push(`    <span class="kw">container</span> con${f.field}${i} = [${conContent}];`);
+        }
+      });
+    });
+
     const xppSelect = subPath.map((step, i) => {
       const a = aliases[step.table];
       const selected = getSelectedFields(step.table);
       const fieldChunk = selected.length ? selected.map(f => `<span class="fld">${f}</span>`).join(', ') : `<span class="tbl">${a}</span>`;
-      
+      const whereClause = getWhereClause(step.table, a, 'xpp');
+
       if (i === 0) {
         const selectKw = whileSelectMode ? 'while select' : 'select firstOnly';
-        return `<span class="kw">${selectKw}</span> ${fieldChunk}`;
+        return `<span class="kw">${selectKw}</span> ${fieldChunk}${whereClause ? `\n    <span class="kw">where</span> ${whereClause}` : ''}`;
       }
 
       const rel = subPath[i].relation;
@@ -2600,22 +2796,19 @@ function renderQueryAccordion(path) {
       const joinFs = resolved.constraints.map(c =>
         `           <span class="tbl">${aliases[subPath[i-1].table]}</span>.<span class="fld">${c.field}</span> == <span class="tbl">${a}</span>.<span class="fld">${c.relatedField}</span>`
       );
-      const note = resolved.inferred ? `\n    <span class="cm">// constraints inferidas por nome de campo</span>` : '';
       
       const joinHeader = `    <span class="kw">join</span> ${fieldChunk}`;
-      if (joinFs.length === 0) {
-        return `${joinHeader}${note}`;
+      let fullJoinWhere = joinFs.join('\n        <span class="kw">&&</span> ');
+      if (whereClause) {
+        fullJoinWhere += (fullJoinWhere ? `\n        <span class="kw">&&</span> ` : '') + whereClause;
       }
-      const whereExpr = joinFs.join('\n        <span class="kw">&&</span> ');
-      return `${joinHeader}${note}\n    <span class="kw">where</span> ${whereExpr}`;
+      return !fullJoinWhere ? `${joinHeader}` : `${joinHeader}\n    <span class="kw">where</span> ${fullJoinWhere}`;
     });
 
     const varDecls = subPath.map(step => `    <span class="tbl">${step.table}</span> <span class="tbl">${aliases[step.table]}</span>;`).join('\n');
-    
-    if (whileSelectMode) {
-      return `<span class="cm">// Declarations</span>\n${varDecls}\n\n<span class="cm">// Query</span>\n${xppSelect.join('\n')}\n{\n    <span class="cm">// TODO: Insira sua lógica de processamento aqui</span>\n}`;
-    }
-    return `<span class="cm">// Declarations</span>\n${varDecls}\n\n<span class="cm">// Query</span>\n${xppSelect.join('\n')};`;
+    const allDecls = [varDecls, ...containerDecls].filter(Boolean).join('\n');
+    const suffix = whileSelectMode ? '\n{\n    <span class="cm">// TODO: Insira sua lógica de processamento aqui</span>\n}' : ';';
+    return `<span class="cm">// Declarations</span>\n${allDecls}\n\n<span class="cm">// Query</span>\n${xppSelect.join('\n')}${suffix}`;
   }
 
   // Section 1: Individual queries
@@ -2624,11 +2817,9 @@ function renderQueryAccordion(path) {
     const t = tableIndex[step.table];
     const topFields = t ? getSqlProjection(step.table, alias).map(f => `    ${f}`).join(',\n') : `    ${alias}.*`;
     const sql = `<span class="kw">SELECT</span>\n${topFields}\n<span class="kw">FROM</span> <span class="tbl">${step.table}</span> <span class="kw">AS</span> <span class="tbl">${alias}</span>`;
-    
     const xppPicked = getSelectedFields(step.table);
     const xppSelectExpr = xppPicked.length ? xppPicked.join(', ') : alias;
     const xpp = `<span class="cm">// Declaration</span>\n<span class="tbl">${step.table}</span> <span class="tbl">${alias}</span>;\n\n<span class="cm">// Query</span>\n<span class="kw">select firstOnly</span> ${esc(xppSelectExpr)};`;
-    
     return `<div class="accordion-item"><button class="accordion-header">${esc(step.table)}</button><div class="accordion-body">${buildQueryBlock(sql, xpp)}</div></div>`;
   }).join('');
 
