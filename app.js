@@ -7,8 +7,14 @@
 // ── STATE ──────────────────────────────────────────────────────────
 let ALL_TABLES  = [];          // Array de objetos de tabela
 let tableIndex  = {};          // name → objeto tabela (lookup O(1))
+let tableIndexLower = {};      // name.toLowerCase() → objeto tabela
 let relIndex    = {};          // name → Set<string> de tabelas relacionadas (para BFS)
 let inboundRelIndex = {};      // name → relações de entrada (para BFS bidirecional)
+
+function getTable(name) {
+  if (!name) return null;
+  return tableIndex[name] || tableIndexLower[name.toLowerCase()];
+}
 let cy          = null;        // Instância Cytoscape
 let currentDetail  = null;     // Tabela atualmente no painel de detalhes
 let detailHistory  = [];       // Histórico de navegação no painel de detalhes
@@ -119,12 +125,7 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('search-input').addEventListener('keydown', e => {
     if (e.key !== 'Enter') return;
     const raw = document.getElementById('search-input').value.trim();
-    // O(1) exact match first, then case-insensitive fallback
-    let match = tableIndex[raw];
-    if (!match) {
-      const lower = raw.toLowerCase();
-      match = ALL_TABLES.find(t => t.name.toLowerCase() === lower);
-    }
+    const match = getTable(raw);
     if (match) {
       addTableToGraph(match.name);
       showDetail(match, true);
@@ -761,10 +762,12 @@ function init(data) {
 
   // Índices
   tableIndex = {};
+  tableIndexLower = {};
   relIndex   = {};
   inboundRelIndex = {};
   for (const t of ALL_TABLES) {
     tableIndex[t.name] = t;
+    tableIndexLower[t.name.toLowerCase()] = t;
     inboundRelIndex[t.name] = [];
   }
   for (const t of ALL_TABLES) {
@@ -2034,26 +2037,35 @@ function findPath() {
     showPathResult('⚠ Preencha os dois campos.', 'error');
     return;
   }
-  if (!tableIndex[fromName]) {
+  
+  const fromTable = getTable(fromName);
+  const toTable   = getTable(toName);
+
+  if (!fromTable) {
     showPathResult(`❌ Tabela "${fromName}" não encontrada.`, 'error');
     return;
   }
-  if (!tableIndex[toName]) {
+  if (!toTable) {
     showPathResult(`❌ Tabela "${toName}" não encontrada.`, 'error');
     return;
   }
+  
+  const resolvedWaypoints = [];
   for (const wp of waypoints) {
-    if (!tableIndex[wp]) {
+    const wt = getTable(wp);
+    if (!wt) {
       showPathResult(`❌ Tabela "${wp}" não encontrada.`, 'error');
       return;
     }
+    resolvedWaypoints.push(wt.name);
   }
-  if (fromName === toName) {
+  
+  if (fromTable.name === toTable.name) {
     showPathResult('⚠ Origem e destino são iguais.', 'error');
     return;
   }
 
-  const stops = [fromName, ...waypoints, toName];
+  const stops = [fromTable.name, ...resolvedWaypoints, toTable.name];
   let fullPath = null;
 
   for (let i = 0; i < stops.length - 1; i++) {
@@ -2342,9 +2354,15 @@ function initAutocomplete() {
 
 // ── BFS MULTIPLE ROUTES (US 1.3) ───────────────────────────────────
 function bfsMultiple(start, end, maxRoutes = 5, maxDepth = appConfig.maxDepth || 8) {
-  if (!tableIndex[start] || !tableIndex[end]) return [];
+  const sT = getTable(start);
+  const eT = getTable(end);
+  if (!sT || !eT) return [];
+  
+  const startName = sT.name;
+  const endName = eT.name;
+
   const routes = [];
-  const stack = [{ name: start, path: [{ table: start, relation: null }], visited: new Set([start]) }];
+  const stack = [{ name: startName, path: [{ table: startName, relation: null }], visited: new Set([startName]) }];
   let iterations = 0;
 
   while (stack.length > 0 && routes.length < maxRoutes && iterations < 50000) {
@@ -2366,12 +2384,12 @@ function bfsMultiple(start, end, maxRoutes = 5, maxDepth = appConfig.maxDepth ||
         neighbors.push({ next: inbound.from, relation: reverseRelation(inbound.relation, name, inbound.from) });
       }
     }
-    const ranked = prioritizeNeighbors(neighbors, end);
+    const ranked = prioritizeNeighbors(neighbors, endName);
     for (const item of ranked) {
       const next = item.next;
       if (!next || visited.has(next) || !tableIndex[next]) continue;
       const newPath = [...path, { table: next, relation: item.relation }];
-      if (next === end) {
+      if (next === endName) {
         routes.push(newPath);
         if (routes.length >= maxRoutes) break;
       } else {
