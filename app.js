@@ -1934,7 +1934,7 @@ function getWhereClause(tableName, alias, lang = 'sql') {
     if (lang === 'sql' && op === '==') op = '=';
 
     const fieldPrefix = alias ? `${alias}.` : '';
-    const prefix = i > 0 ? ` ${f.logic || logicOp} ` : '';
+    const prefix = i > 0 ? `\n    <span class="kw">${f.logic || logicOp}</span> ` : '';
     return `${prefix}${fieldPrefix}${f.field} ${op} ${val}`;
   });
   return parts.join('');

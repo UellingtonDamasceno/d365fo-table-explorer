@@ -23,6 +23,12 @@
       suggestionsContainer = document.createElement("DIV");
       suggestionsContainer.setAttribute("id", this.id + "autocomplete-list");
       suggestionsContainer.setAttribute("class", "autocomplete-items");
+      
+      // Calculate max width based on longest suggestion to prevent clipping
+      const longest = suggestions.reduce((a, b) => a.length > b.length ? a : b, "");
+      const minWidth = Math.min(600, Math.max(input.offsetWidth, longest.length * 8 + 24));
+      suggestionsContainer.style.minWidth = minWidth + "px";
+
       this.parentNode.appendChild(suggestionsContainer);
 
       for (let i = 0; i < suggestions.length; i++) {
