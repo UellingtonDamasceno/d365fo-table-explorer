@@ -51,9 +51,7 @@
       </div>
 
       <div class="header-center">
-        <button class="btn btn-outline btn-sm" id="clear-graph-btn" title="Limpar todos os nós do grafo"><span class="btn-icon">🗑</span><span class="btn-text">Limpar</span></button>
-        <button class="btn btn-outline btn-sm" id="toggle-labels-btn" title="Alternar labels das arestas"><span class="btn-icon">🏷</span><span class="btn-text">Labels</span></button>
-        <select id="layout-select" class="region-select" title="Algoritmo de layout do grafo">
+        <select id="layout-select" class="region-select" title="Algoritmo de layout do grafo" style="display:none">
           <option value="cose">Layout: Cose</option>
           <option value="circle">Layout: Circular</option>
           <option value="breadthfirst">Layout: Árvore</option>
@@ -169,8 +167,12 @@
           </div>
 
           <!-- Graph overlay controls -->
-          <div class="graph-ctrl-bar">
+          <button class="graph-ctrl-toggle-btn" id="toggle-ctrl-bar-btn" title="Mostrar/Esconder controles">⚙️</button>
+          <div class="graph-ctrl-bar collapsed" id="graph-ctrl-bar">
             <div class="expansion-mode-inline">
+              <button class="graph-ctrl-btn" id="clear-graph-btn" title="Limpar todos os nós do grafo">🗑</button>
+              <button class="graph-ctrl-btn" id="toggle-labels-btn" title="Alternar labels das arestas">🏷</button>
+              <div class="ctrl-sep"></div>
               <button class="exp-btn active" data-mode="full" title="Expandir: Tudo">F</button>
               <button class="exp-btn" data-mode="filtered" title="Expandir: Escolher">S</button>
               <button class="exp-btn" data-mode="manual" title="Expandir: Apenas Nó">M</button>
@@ -180,7 +182,6 @@
               <button class="graph-ctrl-btn" id="fit-btn2" title="Ajustar ao centro">⊞</button>
               <button class="graph-ctrl-btn" id="bubble-anim-btn" title="Efeito Bolha">🫧</button>
             </div>
-            
           </div>
 
           <!-- Legend -->

@@ -403,17 +403,39 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
 .graph-ctrl-bar {
   position: absolute; bottom: 12px; right: 12px;
   display: flex; flex-direction: column; gap: 4px;
-  z-index: 10;
+  z-index: 1500;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s;
+  transform-origin: bottom right;
 }
-.graph-ctrl-btn {
-  width: 32px; height: 32px;
-  background: #1e2130; border: 1px solid #2d3250;
-  color: #c8ccd8; border-radius: 6px;
-  cursor: pointer; font-size: 15px; font-weight: 700;
+.graph-ctrl-bar.collapsed {
+  transform: translateY(20px) scale(0.8);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.graph-ctrl-toggle-btn {
+  position: absolute; bottom: 12px; right: 12px;
+  width: 36px; height: 36px;
+  background: #1e2130; border: 1px solid var(--primary);
+  color: #fff; border-radius: 50%;
+  cursor: pointer; font-size: 18px;
   display: flex; align-items: center; justify-content: center;
-  transition: background .15s;
+  z-index: 1600;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  transition: all 0.2s;
 }
-.graph-ctrl-btn:hover { background: #2d3250; color: #fff; }
+.graph-ctrl-toggle-btn:hover { background: var(--primary); transform: scale(1.1); }
+.graph-ctrl-toggle-btn.active {
+  background: var(--accent-red);
+  border-color: var(--accent-red);
+  transform: rotate(90deg);
+}
+
+.ctrl-sep {
+  height: 1px;
+  background: #3d4468;
+  margin: 4px 2px;
+}
 
 /* Graph legend */
 .graph-legend {

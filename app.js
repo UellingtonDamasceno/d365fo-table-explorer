@@ -136,8 +136,16 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('group-filter').addEventListener('change', onSearch);
 
   // Graph controls
-  document.getElementById('clear-graph-btn').addEventListener('click', clearGraph);
-  document.getElementById('fit-graph-btn')?.addEventListener('click', fitGraph);
+  document.getElementById('toggle-ctrl-bar-btn').addEventListener('click', function() {
+    const bar = document.getElementById('graph-ctrl-bar');
+    const isCollapsed = bar.classList.toggle('collapsed');
+    this.classList.toggle('active', !isCollapsed);
+    this.textContent = isCollapsed ? '⚙️' : '✕';
+  });
+
+  document.getElementById('clear-graph-btn').addEventListener('click', () => {
+    if (confirm('Deseja limpar todos os nós do grafo?')) clearGraph();
+  });
   document.getElementById('toggle-labels-btn').addEventListener('click', toggleLabels);
   document.getElementById('layout-select').addEventListener('change', () => applyLayout());
   document.getElementById('zoom-in-btn').addEventListener('click',  () => cy?.zoom({ level: cy.zoom() * 1.25, renderedPosition: graphCenter() }));
