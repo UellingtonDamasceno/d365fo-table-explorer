@@ -172,12 +172,13 @@
               <button class="exp-btn active" data-mode="full" title="Expandir: Tudo">F</button>
               <button class="exp-btn" data-mode="filtered" title="Expandir: Escolher">S</button>
               <button class="exp-btn" data-mode="manual" title="Expandir: Apenas Nó">M</button>
+              <div class="ctrl-sep"></div>
+              <button class="graph-ctrl-btn" id="zoom-in-btn" title="Aumentar Zoom">＋</button>
+              <button class="graph-ctrl-btn" id="zoom-out-btn" title="Diminuir Zoom">－</button>
+              <button class="graph-ctrl-btn" id="fit-btn2" title="Ajustar ao centro">⊞</button>
+              <button class="graph-ctrl-btn" id="bubble-anim-btn" title="Efeito Bolha">🫧</button>
             </div>
-            <div class="ctrl-sep"></div>
-            <button class="graph-ctrl-btn" id="zoom-in-btn" title="Aumentar Zoom">＋</button>
-            <button class="graph-ctrl-btn" id="zoom-out-btn" title="Diminuir Zoom">－</button>
-            <button class="graph-ctrl-btn" id="fit-btn2" title="Ajustar ao centro">⊞</button>
-            <button class="graph-ctrl-btn" id="bubble-anim-btn" title="Efeito Bolha">🫧</button>
+            
           </div>
 
           <!-- Legend -->
@@ -387,10 +388,8 @@
       </div>
       <div class="settings-section">
         <h5>Motor X++ Query</h5>
-        <div class="settings-row"><span>Preferir while select por padrão</span><input id="cfg-default-iterative" type="checkbox" /></div>
         <div class="settings-row"><span>Incluir DataAreaId e Partition</span><input id="cfg-include-system-fields" type="checkbox" /></div>
-      </div>
-      <!-- Portabilidade movida para cá -->
+      </div>      <!-- Portabilidade movida para cá -->
       <div class="settings-section" style="margin-top:15px; border-top: 1px dashed var(--border);">
         <h5>💾 Portabilidade do Grafo</h5>
         <div style="display:flex; gap:10px; margin-top:10px;">

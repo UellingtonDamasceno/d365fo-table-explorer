@@ -53,7 +53,6 @@ const DEFAULT_CONFIG = window.D365State?.DEFAULT_CONFIG || {
   strictDirection: false,
   maxDepth: 8,
   dashboardUseSidebarFilter: true,
-  defaultIterative: false,
   includeSystemFields: false,
 };
 let appConfig = window.D365State?.loadConfig?.() || { ...DEFAULT_CONFIG };
@@ -2576,7 +2575,6 @@ function syncSettingsUI() {
   byId('cfg-strict-direction').checked = appConfig.strictDirection;
   byId('cfg-max-depth').value = appConfig.maxDepth;
   byId('cfg-dashboard-filter').checked = appConfig.dashboardUseSidebarFilter;
-  byId('cfg-default-iterative').checked = appConfig.defaultIterative;
   byId('cfg-include-system-fields').checked = appConfig.includeSystemFields;
   byId('strict-direction-inline').checked = appConfig.strictDirection;
   byId('dash-use-sidebar-filter').checked = appConfig.dashboardUseSidebarFilter;
@@ -2598,7 +2596,6 @@ function wireSettingsInputs() {
     ['cfg-strict-direction', 'strictDirection', 'checked'],
     ['cfg-max-depth', 'maxDepth', 'value'],
     ['cfg-dashboard-filter', 'dashboardUseSidebarFilter', 'checked'],
-    ['cfg-default-iterative', 'defaultIterative', 'checked'],
     ['cfg-include-system-fields', 'includeSystemFields', 'checked'],
   ];
   map.forEach(([id, key, prop]) => {

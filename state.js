@@ -13,7 +13,6 @@
     strictDirection: false,
     maxDepth: 8,
     dashboardUseSidebarFilter: true,
-    defaultIterative: false,
     includeSystemFields: false,
   };
 
