@@ -52,8 +52,10 @@ function createAggTable(name) {
     models: new Set(),
     fields: [],
     relations: [],
+    indexes: [],
     _fieldByName: new Map(),
     _relByKey: new Map(),
+    _indexByName: new Map(),
   };
 }
 
@@ -122,6 +124,22 @@ function mergeFragment(tableMap, fragment) {
     }
     mergeSourceModels(existing, rel, model);
   });
+
+  (fragment.indexes || []).forEach(idx => {
+    const name = String(idx?.name || '');
+    if (!name) return;
+    const k = name.toLowerCase();
+    const existing = table._indexByName.get(k);
+    if (!existing) {
+      const copy = {
+        name,
+        fields: Array.isArray(idx.fields) ? idx.fields : [],
+        allowDuplicates: idx.allowDuplicates,
+      };
+      table.indexes.push(copy);
+      table._indexByName.set(k, copy);
+    }
+  });
 }
 
 function finalizeAggTables(tableMap) {
@@ -134,6 +152,7 @@ function finalizeAggTables(tableMap) {
       const cmp = a.relatedTable.localeCompare(b.relatedTable);
       return cmp !== 0 ? cmp : (a.name || '').localeCompare(b.name || '');
     });
+    const indexes = t.indexes.sort((a, b) => a.name.localeCompare(b.name));
     out.push({
       name: t.name,
       tableGroup: t.tableGroup || 'None',
@@ -141,6 +160,7 @@ function finalizeAggTables(tableMap) {
       models: models.length ? models : [model],
       fields,
       relations,
+      indexes,
     });
   });
   out.sort((a, b) => a.name.localeCompare(b.name));
@@ -240,7 +260,15 @@ function parseByRegex(xmlText, path) {
     models: [model],
     tableGroup,
     fields,
-    relations
+    relations,
+    indexes: (rootXml.match(/<AxTableIndex(?!\w)[\s\S]*?<\/AxTableIndex>/gi) || []).map(ib => {
+      const idxName = extractTagValue('Name', ib);
+      const allowDuplicates = extractTagValue('AllowDuplicates', ib) === 'Yes';
+      const fields = (ib.match(/<AxTableIndexField(?!\w)[\s\S]*?<\/AxTableIndexField>/gi) || []).map(ifb => 
+        extractTagValue('DataField', ifb)
+      ).filter(Boolean);
+      return idxName ? { name: idxName, fields, allowDuplicates } : null;
+    }).filter(Boolean)
   };
 }
 

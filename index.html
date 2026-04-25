@@ -213,6 +213,9 @@
               <button class="tab-btn active" data-tab="fields">
                 🔲 Campos <span id="tab-fields-count" class="tab-count"></span>
               </button>
+              <button class="tab-btn" data-tab="filters">
+                🔍 Filtros
+              </button>
               <button class="tab-btn" data-tab="relations">
                 🔗 Relações <span id="tab-rels-count" class="tab-count"></span>
               </button>
@@ -241,6 +244,35 @@
                 <tbody id="fields-tbody"></tbody>
               </table>
               <div id="fields-empty" class="empty-state hidden">Nenhum campo disponível</div>
+            </div>
+          </div>
+
+          <!-- Filters tab -->
+          <div class="tab-content" id="tab-filters">
+            <div class="filter-builder-area">
+              <div class="filter-section">
+                <div class="filter-section-header">
+                  <span>🎯 Condições (Where)</span>
+                  <button class="btn btn-ghost btn-xs" id="add-filter-condition-btn">＋ Adicionar Filtro</button>
+                </div>
+                <div id="filter-conditions-list" class="filter-list">
+                  <!-- Condition rows: Field, Operator, Value, Logic (AND/OR) -->
+                </div>
+              </div>
+
+              <div class="filter-section">
+                <div class="filter-section-header">
+                  <span>🔢 Ordenação (Order By / Index)</span>
+                </div>
+                <div class="filter-row">
+                  <select id="filter-index-select" class="region-select" style="width:100%">
+                    <option value="">Nenhum índice selecionado</option>
+                  </select>
+                </div>
+                <div id="filter-order-fields" class="filter-order-list">
+                  <!-- Manual field ordering if no index -->
+                </div>
+              </div>
             </div>
           </div>
 

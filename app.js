@@ -22,6 +22,8 @@ let bubblePhases = {};
 let bubbleRaf = null;
 let autoZoomFontEnabled = true;
 let selectedFieldsByTable = {};
+let tableFiltersByTable = {};    // name → array of { field, op, value, logic }
+let tableOrderByByTable = {};   // name → { indexName, manualFields: [] }
 let whileSelectMode = false;
 let lastImportInfo = null;
 let lastIngestionTelemetry = null;
@@ -1611,6 +1613,89 @@ function clearShiftPath() {
   updateShiftPathDisplay();
 }
 
+// ── FILTERS ────────────────────────────────────────────────────────
+function renderFilters(t) {
+  const container = document.getElementById('filter-conditions-list');
+  const indexSelect = document.getElementById('filter-index-select');
+  if (!container || !indexSelect) return;
+
+  const filters = tableFiltersByTable[t.name] || [];
+  const orderBy = tableOrderByByTable[t.name] || { indexName: '', manualFields: [] };
+
+  // 1. Render Conditions
+  container.innerHTML = filters.map((f, i) => `
+    <div class="filter-row" data-idx="${i}">
+      <select class="f-logic">
+        <option value="&&" ${f.logic === '&&' ? 'selected' : ''}>&&</option>
+        <option value="||" ${f.logic === '||' ? 'selected' : ''}>||</option>
+      </select>
+      <select class="f-field">
+        ${t.fields.map(field => `<option value="${esc(field.name)}" ${f.field === field.name ? 'selected' : ''}>${esc(field.name)}</option>`).join('')}
+      </select>
+      <select class="f-op">
+        <option value="==" ${f.op === '==' ? 'selected' : ''}>==</option>
+        <option value="!=" ${f.op === '!=' ? 'selected' : ''}>!=</option>
+        <option value="&gt;" ${f.op === '>' ? 'selected' : ''}>&gt;</option>
+        <option value="&lt;" ${f.op === '<' ? 'selected' : ''}>&lt;</option>
+        <option value="in" ${f.op === 'in' ? 'selected' : ''}>in</option>
+        <option value="like" ${f.op === 'like' ? 'selected' : ''}>like</option>
+      </select>
+      <input type="text" class="f-val" value="${esc(f.value)}" placeholder="Valor..." />
+      <button class="btn btn-ghost btn-xs remove-filter-btn">✕</button>
+    </div>
+  `).join('');
+
+  // 2. Render Indexes
+  const indexes = t.indexes || [];
+  indexSelect.innerHTML = '<option value="">Nenhum índice selecionado</option>' +
+    indexes.map(idx => `<option value="${esc(idx.name)}" ${orderBy.indexName === idx.name ? 'selected' : ''}>Índice: ${esc(idx.name)} (${idx.fields.join(', ')})</option>`).join('');
+
+  // 3. Listeners
+  container.querySelectorAll('.filter-row').forEach(row => {
+    const idx = parseInt(row.dataset.idx);
+    const update = () => {
+      filters[idx].logic = row.querySelector('.f-logic').value;
+      filters[idx].field = row.querySelector('.f-field').value;
+      filters[idx].op    = row.querySelector('.f-op').value;
+      filters[idx].value = row.querySelector('.f-val').value;
+      tableFiltersByTable[t.name] = filters;
+    };
+    row.querySelectorAll('select, input').forEach(el => el.addEventListener('change', update));
+    row.querySelector('.f-val').addEventListener('input', update);
+    row.querySelector('.remove-filter-btn').addEventListener('click', () => {
+      filters.splice(idx, 1);
+      tableFiltersByTable[t.name] = filters;
+      renderFilters(t);
+    });
+  });
+
+  indexSelect.onchange = () => {
+    tableOrderByByTable[t.name] = { ...orderBy, indexName: indexSelect.value };
+  };
+}
+
+// Update showDetail to include renderFilters
+const originalShowDetail = showDetail;
+showDetail = function(t, skipHistory = false) {
+  originalShowDetail(t, skipHistory);
+  renderFilters(t);
+};
+
+// Add listener for "Add Filter" button
+document.getElementById('add-filter-condition-btn')?.addEventListener('click', () => {
+  if (!currentDetail) return;
+  const name = currentDetail.name;
+  if (!tableFiltersByTable[name]) tableFiltersByTable[name] = [];
+  const fields = currentDetail.fields || [];
+  tableFiltersByTable[name].push({
+    logic: tableFiltersByTable[name].length > 0 ? '&&' : '',
+    field: fields[0]?.name || '',
+    op: '==',
+    value: ''
+  });
+  renderFilters(currentDetail);
+});
+
 // ── FIELDS ─────────────────────────────────────────────────────────
 let allFields = [];
 let currentFieldsTableName = '';
@@ -1800,6 +1885,42 @@ function getSqlProjection(tableName, alias) {
   return out;
 }
 
+function getWhereClause(tableName, alias, lang = 'sql') {
+  const filters = tableFiltersByTable[tableName] || [];
+  if (!filters.length) return '';
+  const logicOp = lang === 'sql' ? 'AND' : '&&';
+  const parts = filters.map((f, i) => {
+    let val = f.value;
+    const isNumeric = /^-?\d+(\.\d+)?$/.test(val);
+    if (!isNumeric && val !== '' && !val.startsWith("'") && f.op !== 'in') val = `'${val}'`;
+    
+    let op = f.op;
+    if (lang === 'xpp' && op === '==') op = '==';
+    if (lang === 'sql' && op === '==') op = '=';
+
+    const fieldPrefix = alias ? `${alias}.` : '';
+    const prefix = i > 0 ? ` ${f.logic || logicOp} ` : '';
+    return `${prefix}${fieldPrefix}${f.field} ${op} ${val}`;
+  });
+  return parts.join('');
+}
+
+function getOrderByClause(tableName, alias, lang = 'sql') {
+  const orderBy = tableOrderByByTable[tableName];
+  if (!orderBy || !orderBy.indexName) return '';
+  
+  const t = tableIndex[tableName];
+  const idx = t?.indexes?.find(i => i.name === orderBy.indexName);
+  if (!idx || !idx.fields.length) return '';
+
+  const fieldPrefix = alias ? `${alias}.` : '';
+  if (lang === 'sql') {
+    return `ORDER BY ` + idx.fields.map(f => `${fieldPrefix}${f}`).join(', ');
+  } else {
+    return `order by ` + idx.fields.map(f => `${fieldPrefix}${f}`).join(', ');
+  }
+}
+
 function genSimpleQuery() {
   if (!currentDetail) return;
   const t = currentDetail;
@@ -1809,8 +1930,13 @@ function genSimpleQuery() {
   const xppPicked = getSelectedFields(t.name);
   const xppSelectExpr = xppPicked.length ? xppPicked.join(', ') : alias;
 
-  const sql = `<span class="kw">SELECT</span>\n${topFields}\n<span class="kw">FROM</span> <span class="tbl">${t.name}</span> <span class="kw">AS</span> <span class="tbl">${alias}</span>`;
-  const xpp = `<span class="kw">select</span> ${esc(xppSelectExpr)}\n    <span class="kw">from</span> <span class="tbl">${t.name}</span>;`;
+  const whereSql = getWhereClause(t.name, alias, 'sql');
+  const orderSql = getOrderByClause(t.name, alias, 'sql');
+  const sql = `<span class="kw">SELECT</span>\n${topFields}\n<span class="kw">FROM</span> <span class="tbl">${t.name}</span> <span class="kw">AS</span> <span class="tbl">${alias}</span>${whereSql ? `\n<span class="kw">WHERE</span> ${whereSql}` : ''}${orderSql ? `\n<span class="kw">${orderSql}</span>` : ''}`;
+  
+  const whereXpp = getWhereClause(t.name, alias, 'xpp');
+  const orderXpp = getOrderByClause(t.name, alias, 'xpp');
+  const xpp = `<span class="kw">select</span> ${esc(xppSelectExpr)}\n    <span class="kw">from</span> <span class="tbl">${t.name}</span>${whereXpp ? `\n    <span class="kw">where</span> ${whereXpp}` : ''}${orderXpp ? `\n    <span class="kw">${orderXpp}</span>` : ''};`;
 
   document.getElementById('sql-output').innerHTML = sql;
   document.getElementById('xpp-output').innerHTML = xpp;
@@ -2301,6 +2427,8 @@ function renderQueryAccordion(path) {
     const first = subPath[0];
     const projection = subPath.flatMap(step => getSqlProjection(step.table, aliases[step.table]));
     let sqlLines = [`<span class="kw">SELECT</span> ${projection.map(p => `<span class="fld">${esc(p)}</span>`).join(', ')}\n<span class="kw">FROM</span>  <span class="tbl">${first.table}</span> <span class="kw">AS</span> <span class="tbl">${aliases[first.table]}</span>`];
+    
+    // Jointuras
     for (let i = 1; i < subPath.length; i++) {
       const step = subPath[i];
       const a = aliases[step.table];
@@ -2322,6 +2450,18 @@ function renderQueryAccordion(path) {
       }
       sqlLines.push(`    <span class="kw">INNER JOIN</span> <span class="tbl">${step.table}</span> <span class="kw">AS</span> <span class="tbl">${a}</span>\n        <span class="kw">ON</span> ${joinConds.join('\n        <span class="kw">AND</span> ')}`);
     }
+
+    // Filtros globais (WHERE) de todas as tabelas no path
+    const whereParts = subPath.map(step => getWhereClause(step.table, aliases[step.table], 'sql')).filter(Boolean);
+    if (whereParts.length > 0) {
+      sqlLines.push(`<span class="kw">WHERE</span> ${whereParts.join('\n  <span class="kw">AND</span> ')}`);
+    }
+
+    // Ordenação (apenas da última tabela ou combinada - simplificado para última com índice)
+    const lastStep = subPath[subPath.length - 1];
+    const orderSql = getOrderByClause(lastStep.table, aliases[lastStep.table], 'sql');
+    if (orderSql) sqlLines.push(`<span class="kw">${orderSql}</span>`);
+
     return sqlLines.join('\n');
   }
 

@@ -885,6 +885,66 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
 .breadcrumb-sep { color: var(--text-muted); font-size: 11px; }
 .add-trail-btn { margin-left: auto; flex-shrink: 0; font-size: 11px; padding: 3px 8px; }
 
+/* ===== FILTER BUILDER ===== */
+.filter-builder-area {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.filter-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.filter-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.filter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.filter-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.filter-row select, .filter-row input {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.filter-row .f-field { flex: 2; min-width: 0; }
+.filter-row .f-op { flex: 1; min-width: 60px; }
+.filter-row .f-val { flex: 2; min-width: 0; }
+.filter-row .f-logic { width: 60px; font-weight: bold; color: var(--primary); }
+
+.filter-order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.order-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
 /* Shortcuts modal (US 3.1) */
 .shortcuts-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 9000; display: flex; align-items: center; justify-content: center; }
 .shortcuts-modal.hidden { display: none !important; }
