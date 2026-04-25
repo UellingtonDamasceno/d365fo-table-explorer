@@ -437,7 +437,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
 .graph-ctrl-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 
 .graph-ctrl-toggle-btn {
-  width: 32px; height: 32px;
+  width: 45px; height: 45px;
   background: #1e2130; border: 1px solid var(--primary);
   color: #fff; border-radius: 6px;
   cursor: pointer; font-size: 14px;
@@ -725,6 +725,7 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
 .sidebar.collapsed .sidebar-search,
 .sidebar.collapsed .sidebar-group,
 .sidebar.collapsed .path-panel,
+.sidebar.collapsed .sidebar-path-trigger,
 .sidebar.collapsed + .resize-handle {
   display: none;
 }
