@@ -935,6 +935,10 @@ function onTableClick(t) {
 
 // ── CYTOSCAPE ──────────────────────────────────────────────────────
 function initCy() {
+  if (cy) {
+    cy.destroy();
+    cy = null;
+  }
   if (typeof cytoscape === 'undefined') {
     document.getElementById('graph-welcome').innerHTML =
       `<div class="welcome-icon">⚠️</div><h2 style="color:#f87171">Cytoscape.js não carregado</h2>
@@ -950,7 +954,6 @@ function initCy() {
     layout: { name: 'preset' },
     minZoom: 0.1,
     maxZoom: 4,
-    wheelSensitivity: 0.3,
     boxSelectionEnabled: false, // Desativa seleção em massa com Ctrl
   });
   cy.on('zoom', applyAutoFontScaling);
