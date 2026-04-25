@@ -162,7 +162,9 @@
           <!-- Canvas node search (US P3 1.2) -->
           <div class="canvas-search-wrap hidden" id="canvas-search-wrap">
             <span class="canvas-search-icon">🔍</span>
-            <input id="canvas-search-input" type="text" placeholder="Buscar nó no canvas..." autocomplete="off" />
+            <div class="autocomplete-wrapper" style="flex:1">
+              <input id="canvas-search-input" type="text" placeholder="Buscar nó no canvas..." autocomplete="off" />
+            </div>
             <button id="canvas-search-clear" class="canvas-search-clear-btn hidden" title="Limpar">✕</button>
           </div>
 
@@ -503,13 +505,15 @@
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
           <div style="display: flex; flex-direction: column; gap: 6px;">
             <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Origem (De)</label>
-            <input id="path-from" type="text" class="path-input" style="padding: 10px; font-size: 14px;" placeholder="Tabela de origem..." list="path-from-list" />
-            <datalist id="path-from-list"></datalist>
+            <div class="autocomplete-wrapper">
+              <input id="path-from" type="text" class="path-input" style="padding: 10px; font-size: 14px;" placeholder="Tabela de origem..." />
+            </div>
           </div>
           <div style="display: flex; flex-direction: column; gap: 6px;">
             <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Destino (Para)</label>
-            <input id="path-to" type="text" class="path-input" style="padding: 10px; font-size: 14px;" placeholder="Tabela de destino..." list="path-to-list" />
-            <datalist id="path-to-list"></datalist>
+            <div class="autocomplete-wrapper">
+              <input id="path-to" type="text" class="path-input" style="padding: 10px; font-size: 14px;" placeholder="Tabela de destino..." />
+            </div>
           </div>
         </div>
 
@@ -545,6 +549,7 @@
   <script src="query-engine.js"></script>
   <script src="shortcuts.js"></script>
   <script src="graph-engine.js"></script>
+  <script src="autocomplete.js"></script>
   <script src="app.js?v=20260424a"></script>
 </body>
 </html>

@@ -228,19 +228,35 @@ window.addEventListener('DOMContentLoaded', () => {
     const container = document.getElementById('waypoints-container');
     const row = document.createElement('div');
     row.className = 'waypoint-row';
+    
+    const wrapper = document.createElement('div');
+    wrapper.className = 'autocomplete-wrapper';
+    wrapper.style.flex = '1';
+
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'path-input';
     input.placeholder = 'Via...';
     input.autocomplete = 'off';
-    input.setAttribute('list', 'waypoints-datalist');
+
     const removeBtn = document.createElement('button');
     removeBtn.className = 'waypoint-remove-btn';
     removeBtn.textContent = '✕';
     removeBtn.addEventListener('click', () => row.remove());
-    row.appendChild(input);
+    
+    wrapper.appendChild(input);
+    row.appendChild(wrapper);
     row.appendChild(removeBtn);
     container.appendChild(row);
+
+    // Add autocomplete to the new input
+    const tableNames = ALL_TABLES.map(t => t.name);
+    D365Autocomplete.create(input, {
+      getSuggestions: (q) => {
+        const low = q.toLowerCase();
+        return tableNames.filter(name => name.toLowerCase().includes(low));
+      }
+    });
   });
 
   // Alt routes (US 1.3)
@@ -772,6 +788,7 @@ function init(data) {
   initCy();
   applyConfigToRuntime();
   buildLegend();
+  initAutocomplete();
   hideOverlay();
 }
 
@@ -1629,9 +1646,9 @@ function renderFilters(t) {
         <option value="&&" ${f.logic === '&&' ? 'selected' : ''}>&&</option>
         <option value="||" ${f.logic === '||' ? 'selected' : ''}>||</option>
       </select>
-      <select class="f-field">
-        ${t.fields.map(field => `<option value="${esc(field.name)}" ${f.field === field.name ? 'selected' : ''}>${esc(field.name)}</option>`).join('')}
-      </select>
+      <div class="autocomplete-wrapper" style="flex:2">
+        <input type="text" class="f-field" value="${esc(f.field)}" placeholder="Campo..." />
+      </div>
       <select class="f-op">
         <option value="==" ${f.op === '==' ? 'selected' : ''}>==</option>
         <option value="!=" ${f.op === '!=' ? 'selected' : ''}>!=</option>
@@ -1651,15 +1668,30 @@ function renderFilters(t) {
     indexes.map(idx => `<option value="${esc(idx.name)}" ${orderBy.indexName === idx.name ? 'selected' : ''}>Índice: ${esc(idx.name)} (${idx.fields.join(', ')})</option>`).join('');
 
   // 3. Listeners
+  const fieldNames = t.fields.map(f => f.name);
   container.querySelectorAll('.filter-row').forEach(row => {
     const idx = parseInt(row.dataset.idx);
+    const fInp = row.querySelector('.f-field');
     const update = () => {
       filters[idx].logic = row.querySelector('.f-logic').value;
-      filters[idx].field = row.querySelector('.f-field').value;
+      filters[idx].field = fInp.value;
       filters[idx].op    = row.querySelector('.f-op').value;
       filters[idx].value = row.querySelector('.f-val').value;
       tableFiltersByTable[t.name] = filters;
     };
+    
+    // Autocomplete for field
+    D365Autocomplete.create(fInp, {
+      getSuggestions: (q) => {
+        const low = q.toLowerCase();
+        return fieldNames.filter(n => n.toLowerCase().includes(low));
+      },
+      onSelect: (val) => {
+        fInp.value = val;
+        update();
+      }
+    });
+
     row.querySelectorAll('select, input').forEach(el => el.addEventListener('change', update));
     row.querySelector('.f-val').addEventListener('input', update);
     row.querySelector('.remove-filter-btn').addEventListener('click', () => {
@@ -2267,6 +2299,45 @@ function renderBreadcrumbs() {
     html += `<button class="btn btn-ghost btn-sm add-trail-btn" id="add-trail-to-graph-btn">📌 Adicionar trilha ao canvas</button>`;
   }
   el.innerHTML = html;
+}
+
+/* ===================================================================
+   AUTOCOMPLETE INITIALIZATION
+   =================================================================== */
+function initAutocomplete() {
+  const tableNames = ALL_TABLES.map(t => t.name);
+
+  // Pathfinding From
+  D365Autocomplete.create(document.getElementById('path-from'), {
+    getSuggestions: (q) => {
+      const low = q.toLowerCase();
+      return tableNames.filter(name => name.toLowerCase().includes(low));
+    }
+  });
+
+  // Pathfinding To
+  D365Autocomplete.create(document.getElementById('path-to'), {
+    getSuggestions: (q) => {
+      const low = q.toLowerCase();
+      return tableNames.filter(name => name.toLowerCase().includes(low));
+    }
+  });
+
+  // Canvas Search
+  D365Autocomplete.create(document.getElementById('canvas-search-input'), {
+    getSuggestions: (q) => {
+      if (!cy) return [];
+      const low = q.toLowerCase();
+      return cy.nodes().map(n => n.id()).filter(id => id.toLowerCase().includes(low));
+    },
+    onSelect: (val) => {
+      const node = cy.getElementById(val);
+      if (node.length) {
+        cy.animate({ center: { eles: node }, zoom: 1.2 }, { duration: 500 });
+        node.select();
+      }
+    }
+  });
 }
 
 // ── BFS MULTIPLE ROUTES (US 1.3) ───────────────────────────────────
