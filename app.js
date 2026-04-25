@@ -179,6 +179,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Field/relation filters
   document.getElementById('fields-filter').addEventListener('input', filterFields);
+  document.getElementById('fields-model-filter').addEventListener('change', filterFields);
   document.getElementById('rels-filter').addEventListener('input', filterRelations);
 
   // Pathfinding
@@ -1829,6 +1830,22 @@ let currentFieldsTableName = '';
 function renderFields(fields, tableName) {
   allFields = fields;
   currentFieldsTableName = tableName || '';
+  
+  // Populate model filter
+  const models = [...new Set(fields.flatMap(f => f.sourceModels || []))].filter(Boolean).sort();
+  const modelSel = document.getElementById('fields-model-filter');
+  
+  if (modelSel) {
+    if (models.length <= 1) {
+      modelSel.classList.add('hidden');
+    } else {
+      modelSel.classList.remove('hidden');
+      modelSel.innerHTML = '<option value="">Todos os Modelos</option>' + 
+        models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+    }
+    modelSel.value = '';
+  }
+
   document.getElementById('fields-filter').value = '';
   applyFieldFilter('');
 }
@@ -1838,11 +1855,15 @@ function filterFields() {
 }
 
 function applyFieldFilter(q) {
-  const filtered = q
-    ? allFields.filter(f => (f.name || '').toLowerCase().includes(q) ||
+  const modelFilter = document.getElementById('fields-model-filter')?.value || '';
+  
+  const filtered = allFields.filter(f => {
+    const matchText = !q || (f.name || '').toLowerCase().includes(q) ||
                              (f.type || '').toLowerCase().includes(q) ||
-                             (f.edt  || '').toLowerCase().includes(q))
-    : allFields;
+                             (f.edt  || '').toLowerCase().includes(q);
+    const matchModel = !modelFilter || (f.sourceModels || []).includes(modelFilter);
+    return matchText && matchModel;
+  });
 
   const tbody = document.getElementById('fields-tbody');
   const empty = document.getElementById('fields-empty');
@@ -1861,6 +1882,7 @@ function applyFieldFilter(q) {
     const rawType = f.type || '';
     const type = rawType.replace(/^AxTableField/, '');
     const edt  = f.edt || f.extendedDataType || f.enumType || '';
+    const sourceModel = (f.sourceModels || [])[0] || 'Base';
     const tableSet = selectedFieldsByTable[currentFieldsTableName] || new Set();
     const checked = tableSet.has(f.name || '');
     return `<tr class="field-row" tabindex="0">
@@ -1868,6 +1890,7 @@ function applyFieldFilter(q) {
       <td>${esc(f.name || '')}</td>
       <td><span class="type-badge">${esc(type)}</span></td>
       <td>${edt ? `<span class="edt-badge">${esc(edt)}</span>` : '<span class="no">—</span>'}</td>
+      <td><span class="table-group-tag">${esc(sourceModel)}</span></td>
     </tr>`;
   }).join('');
 

@@ -232,6 +232,9 @@
           <div class="tab-content active" id="tab-fields">
             <div class="props-filter-wrap">
               <input type="text" class="props-filter" id="fields-filter" placeholder="Filtrar campos..." />
+              <select id="fields-model-filter" class="region-select" style="max-width: 120px;">
+                <option value="">Tudo</option>
+              </select>
               <span id="fields-shown-count" class="props-count"></span>
             </div>
             <div class="props-table-wrap">
@@ -242,6 +245,7 @@
                     <th>Nome</th>
                     <th>Tipo</th>
                     <th>EDT / Enum</th>
+                    <th>Origem</th>
                   </tr>
                 </thead>
                 <tbody id="fields-tbody"></tbody>
