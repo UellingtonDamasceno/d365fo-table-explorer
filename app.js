@@ -1658,24 +1658,31 @@ function renderFilters(t) {
 
   // 1. Render Conditions
   container.innerHTML = filters.map((f, i) => `
-    <div class="filter-row" data-idx="${i}">
-      <select class="f-logic">
-        <option value="&&" ${f.logic === '&&' ? 'selected' : ''}>&&</option>
-        <option value="||" ${f.logic === '||' ? 'selected' : ''}>||</option>
-      </select>
-      <div class="autocomplete-wrapper" style="flex:2">
-        <input type="text" class="f-field" value="${esc(f.field)}" placeholder="Campo..." />
+    <div class="filter-group" data-idx="${i}">
+      <div class="filter-group-row">
+        ${i > 0 ? `
+          <select class="f-logic">
+            <option value="&&" ${f.logic === '&&' ? 'selected' : ''}>&&</option>
+            <option value="||" ${f.logic === '||' ? 'selected' : ''}>||</option>
+          </select>
+        ` : ''}
+        <div class="autocomplete-wrapper f-field-wrapper">
+          <input type="text" class="f-field" value="${esc(f.field)}" placeholder="Campo (ex: RecId)..." autocomplete="off" />
+        </div>
+        <button class="btn btn-ghost btn-xs remove-filter-btn" title="Remover filtro">✕</button>
       </div>
-      <select class="f-op">
-        <option value="==" ${f.op === '==' ? 'selected' : ''}>==</option>
-        <option value="!=" ${f.op === '!=' ? 'selected' : ''}>!=</option>
-        <option value="&gt;" ${f.op === '>' ? 'selected' : ''}>&gt;</option>
-        <option value="&lt;" ${f.op === '<' ? 'selected' : ''}>&lt;</option>
-        <option value="in" ${f.op === 'in' ? 'selected' : ''}>in</option>
-        <option value="like" ${f.op === 'like' ? 'selected' : ''}>like</option>
-      </select>
-      <input type="text" class="f-val" value="${esc(f.value)}" placeholder="Valor..." />
-      <button class="btn btn-ghost btn-xs remove-filter-btn">✕</button>
+
+      <div class="filter-group-row">
+        <select class="f-op">
+          <option value="==" ${f.op === '==' ? 'selected' : ''}>==</option>
+          <option value="!=" ${f.op === '!=' ? 'selected' : ''}>!=</option>
+          <option value="&gt;" ${f.op === '>' ? 'selected' : ''}>&gt;</option>
+          <option value="&lt;" ${f.op === '<' ? 'selected' : ''}>&lt;</option>
+          <option value="in" ${f.op === 'in' ? 'selected' : ''}>in</option>
+          <option value="like" ${f.op === 'like' ? 'selected' : ''}>like</option>
+        </select>
+        <input type="text" class="f-val" value="${esc(f.value)}" placeholder="Valor..." autocomplete="off" />
+      </div>
     </div>
   `).join('');
 
@@ -1692,11 +1699,12 @@ function renderFilters(t) {
 
   // 3. Listeners
   const fieldNames = t.fields.map(f => f.name);
-  container.querySelectorAll('.filter-row').forEach(row => {
+  container.querySelectorAll('.filter-group').forEach(row => {
     const idx = parseInt(row.dataset.idx);
     const fInp = row.querySelector('.f-field');
     const update = () => {
-      filters[idx].logic = row.querySelector('.f-logic').value;
+      const logicEl = row.querySelector('.f-logic');
+      if (logicEl) filters[idx].logic = logicEl.value;
       filters[idx].field = fInp.value;
       filters[idx].op    = row.querySelector('.f-op').value;
       filters[idx].value = row.querySelector('.f-val').value;
@@ -1719,6 +1727,7 @@ function renderFilters(t) {
     row.querySelector('.f-val').addEventListener('input', update);
     row.querySelector('.remove-filter-btn').addEventListener('click', () => {
       filters.splice(idx, 1);
+      if (filters.length > 0) filters[0].logic = ''; // clear first logic
       tableFiltersByTable[t.name] = filters;
       renderFilters(t);
     });

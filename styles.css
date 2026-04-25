@@ -959,14 +959,24 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
 .filter-list {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+.filter-group {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
-.filter-row {
+.filter-group-row {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
+  width: 100%;
 }
-.filter-row select, .filter-row input {
+.filter-group-row select, .filter-group-row input {
   background: var(--bg-card);
   border: 1px solid var(--border);
   color: var(--text);
@@ -974,10 +984,19 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
   border-radius: 4px;
   font-size: 12px;
 }
-.filter-row .f-field { flex: 2; min-width: 0; }
-.filter-row .f-op { flex: 1; min-width: 60px; }
-.filter-row .f-val { flex: 2; min-width: 0; }
-.filter-row .f-logic { width: 60px; font-weight: bold; color: var(--primary); }
+.filter-group .f-logic { width: 55px; font-weight: bold; color: var(--primary); flex-shrink: 0; }
+.filter-group .f-field-wrapper { flex: 1; min-width: 0; }
+.filter-group .f-field { width: 100% !important; }
+.filter-group .f-op { width: 75px; flex-shrink: 0; }
+.filter-group .f-val { flex: 1; min-width: 0; }
+
+.remove-filter-btn {
+  padding: 4px 8px;
+  font-size: 11px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.remove-filter-btn:hover { color: var(--accent-red); background: rgba(239,68,68,0.1); }
 
 .filter-order-list {
   display: flex;
