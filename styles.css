@@ -111,6 +111,11 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
   background: var(--sidebar-bg);
   border-bottom: 1px solid var(--sidebar-bdr);
 }
+@media (max-width: 1370px) {
+  .header { height: auto; min-height: 52px; padding: 10px 16px; flex-wrap: wrap; gap: 12px; }
+  .header-center { order: 2; flex: none; width: auto; justify-content: flex-start; }
+  .header-actions { order: 3; flex: 1; justify-content: flex-end; padding-bottom: 4px; }
+}
 .header-brand { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .brand-icon   { font-size: 20px; }
 .brand-name   { font-weight: 600; color: #fff; font-size: 15px; }
@@ -1004,17 +1009,17 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
    Phase 3 – P3 NEW STYLES
    =================================================================== */
 
-/* P3 US 1.2 – Canvas node search */
+/* P3 US 1.2 – Canvas node search (Centralizado & Cores Originais) */
 .canvas-search-wrap {
   position: absolute;
-  top: 10px;
+  top: 15px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 25;
+  z-index: 1500;
   display: flex;
   align-items: center;
   gap: 4px;
-  background: rgba(19,20,31,.88);
+  background: rgba(19,20,31,.88); /* Restaurado */
   border: 1px solid #3d4468;
   border-radius: 20px;
   padding: 4px 10px;
@@ -1022,7 +1027,6 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
   transition: border-color .15s;
 }
 .canvas-search-wrap:focus-within { border-color: var(--primary); }
-.canvas-search-icon { font-size: 12px; opacity: .6; }
 #canvas-search-input {
   width: 200px;
   background: transparent;
@@ -1030,20 +1034,69 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
   outline: none;
   color: #e5e7eb;
   font-size: 12px;
-  transition: background-color .15s;
 }
-#canvas-search-input::placeholder { color: #4b5563; }
-#canvas-search-input.not-found { background: rgba(239,68,68,.15); border-radius: 3px; }
-.canvas-search-clear-btn {
-  background: none;
-  border: none;
-  color: #6b7280;
-  cursor: pointer;
-  font-size: 12px;
-  padding: 0 2px;
-  line-height: 1;
+
+/* HUD Superior de Seleção */
+.path-builder-hud {
+  position: absolute;
+  top: 65px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e2130;
+  border: 1px solid #3d4468;
+  padding: 10px 24px;
+  border-radius: 40px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  z-index: 1600;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
-.canvas-search-clear-btn:hover { color: #fff; }
+.hud-sequence { display: flex; align-items: center; gap: 8px; color: #c8ccd8; font-weight: 600; font-size: 13px; }
+.hud-step { background: #2d3250; padding: 4px 12px; border-radius: 12px; border: 1px solid #3d4468; color: #fff; }
+
+.expansion-mode-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #1a1c2b;
+  border: 1px solid #3d4468;
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+  margin-bottom: 4px;
+}
+.expansion-mode-inline .exp-btn {
+  width: 32px; height: 32px; font-size: 11px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; border: 1px solid #3d4468;
+  background: #1e2130; color: #8b92a8; cursor: pointer;
+  transition: all 0.2s;
+}
+.expansion-mode-inline .exp-btn:hover { background: #2d3250; color: #fff; }
+.expansion-mode-inline .exp-btn.active {
+  background: var(--primary); color: #fff; border-color: var(--primary);
+}
+
+/* Pathfinding Modal (Dark Theme Sync) */
+#pathfinding-modal .shortcuts-modal-inner {
+  background: #1e2130;
+  color: #c8ccd8;
+  border-color: #3d4468;
+  width: 600px !important;
+  max-width: 95vw;
+}
+#pathfinding-modal h4 { color: #fff; }
+#pathfinding-modal .path-input {
+  background: #13141f;
+  color: #fff;
+  border-color: #3d4468;
+  border-radius: 6px;
+  padding: 10px;
+}
+#pathfinding-modal label { color: #9ca3af !important; font-size: 11px; font-weight: 700; }
+
+
 
 :focus-visible {
   outline: 2px solid rgba(0,120,212,.8);

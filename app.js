@@ -26,6 +26,21 @@ let selectedFieldsByTable = {};
 let whileSelectMode = false;
 let lastImportInfo = null;
 let lastIngestionTelemetry = null;
+let querySequence = [];
+
+function updateHud() {
+  const hud = document.getElementById('path-builder-hud');
+  const seq = document.getElementById('hud-sequence');
+  if (!hud || !seq) return;
+  if (querySequence.length === 0) {
+    hud.classList.add('hidden');
+    return;
+  }
+  hud.classList.remove('hidden');
+  seq.innerHTML = querySequence.map((name, i) => 
+    `<span class="hud-step">${esc(name)}</span>`
+  ).join('<span class="hud-arrow">➔</span>');
+}
 
 const DEFAULT_CONFIG = window.D365State?.DEFAULT_CONFIG || {
   layout: 'cose',
@@ -121,7 +136,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Graph controls
   document.getElementById('clear-graph-btn').addEventListener('click', clearGraph);
-  document.getElementById('fit-graph-btn').addEventListener('click', fitGraph);
+  document.getElementById('fit-graph-btn')?.addEventListener('click', fitGraph);
   document.getElementById('toggle-labels-btn').addEventListener('click', toggleLabels);
   document.getElementById('layout-select').addEventListener('change', () => applyLayout());
   document.getElementById('zoom-in-btn').addEventListener('click',  () => cy?.zoom({ level: cy.zoom() * 1.25, renderedPosition: graphCenter() }));
@@ -229,14 +244,14 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   // Alt routes (US 1.3)
-  document.getElementById('find-alt-routes-btn').addEventListener('click', () => {
+  document.getElementById('find-alt-routes-btn')?.addEventListener('click', () => {
     const from = document.getElementById('path-from').value.trim();
     const to = document.getElementById('path-to').value.trim();
     if (from && to) renderAltRoutes(from, to);
   });
 
   // Undo (US 3.2)
-  document.getElementById('undo-btn').addEventListener('click', undoAction);
+  document.getElementById('undo-btn')?.addEventListener('click', undoAction);
 
   // Shortcuts modal (US 3.1)
   document.getElementById('shortcuts-help-btn').addEventListener('click', () => {
@@ -265,6 +280,49 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Metadata dashboard
   document.getElementById('open-dashboard-btn').addEventListener('click', openMetadataDashboard);
+
+  // Pathfinding Modal Trigger
+  document.getElementById('open-pathfinding-btn')?.addEventListener('click', () => {
+    document.getElementById('pathfinding-modal').classList.remove('hidden');
+    document.getElementById('path-from').focus();
+  });
+  document.getElementById('path-modal-close-btn')?.addEventListener('click', () => {
+    document.getElementById('pathfinding-modal').classList.add('hidden');
+  });
+
+  // HUD Query Generator
+  document.getElementById('hud-find-btn')?.addEventListener('click', () => {
+    if (querySequence.length < 2) return;
+    const from = querySequence[0];
+    const to = querySequence[querySequence.length - 1];
+    const waypoints = querySequence.slice(1, -1);
+    
+    document.getElementById('path-from').value = from;
+    document.getElementById('path-to').value = to;
+    
+    const container = document.getElementById('waypoints-container');
+    if (container) {
+      container.innerHTML = '';
+      waypoints.forEach(wp => {
+         const row = document.createElement('div');
+         row.className = 'waypoint-row';
+         row.innerHTML = `<input type="text" class="path-input" value="${esc(wp)}" readonly />`;
+         container.appendChild(row);
+      });
+    }
+
+    findPath();
+    
+    // Hide HUD after generating
+    const pathHud = document.getElementById('path-builder-hud');
+    if (pathHud) pathHud.classList.add('hidden');
+    querySequence.forEach(name => {
+      const node = cy.getElementById(name);
+      if (node.length) node.removeClass('cy-node-queued path-selected');
+    });
+    querySequence = [];
+  });
+
   document.getElementById('open-telemetry-btn').addEventListener('click', openTelemetryModal);
   document.getElementById('telemetry-close-btn').addEventListener('click', () => 
     document.getElementById('telemetry-modal').classList.add('hidden'));
@@ -362,11 +420,26 @@ window.addEventListener('DOMContentLoaded', () => {
       document.getElementById('reload-file-input').click();
     }
     if (e.key === 'Escape') {
-      // 1. Close open modals/dialogs first (in order of priority)
+      // 1. Prioridade: HUD de Seleção Superior
+      const pathHud = document.getElementById('path-builder-hud');
+      if (pathHud && !pathHud.classList.contains('hidden')) {
+        querySequence.forEach(name => {
+          const node = cy.getElementById(name);
+          if (node.length) node.removeClass('cy-node-queued path-selected');
+        });
+        querySequence = [];
+        pathHud.classList.add('hidden');
+        updateHud();
+        return;
+      }
+      
+      // 2. Modais e Diálogos
       const dashboardModal   = document.getElementById('dashboard-modal');
       const settingsModal    = document.getElementById('settings-modal');
       const shortcutsModal   = document.getElementById('shortcuts-modal');
       const expansionDialog  = document.getElementById('expansion-dialog');
+      const pathfindingModal = document.getElementById('pathfinding-modal');
+
       if (dashboardModal && !dashboardModal.classList.contains('hidden')) {
         dashboardModal.classList.add('hidden'); return;
       }
@@ -379,19 +452,28 @@ window.addEventListener('DOMContentLoaded', () => {
       if (expansionDialog && !expansionDialog.classList.contains('hidden')) {
         expansionDialog.classList.add('hidden'); return;
       }
-      // 2. Don't touch canvas if user is typing
+      if (pathfindingModal && !pathfindingModal.classList.contains('hidden')) {
+        pathfindingModal.classList.add('hidden'); return;
+      }
+
+      // 3. Limpeza do Canvas (se nada acima estiver aberto)
+      const inInput = window.D365Shortcuts?.isInputElement
+        ? window.D365Shortcuts.isInputElement(document.activeElement)
+        : (() => {
+            const tag = (document.activeElement?.tagName || '').toLowerCase();
+            return tag === 'input' || tag === 'textarea';
+          })();
       if (inInput) return;
-      // 3. Clear all highlights, selections, paths on canvas
       cy?.elements().removeClass('highlighted path-selected');
       clearDirectionalHighlight();
       cy?.nodes().removeClass('shift-queued canvas-highlighted');
       shiftPath.forEach(name => cy?.getElementById(name).removeClass('shift-queued'));
       shiftPath = [];
       updateShiftPathDisplay();
-      // 4. Clear path result panel
+      
       const pathResult = document.getElementById('path-result');
       if (pathResult) { pathResult.innerHTML = ''; pathResult.classList.add('hidden'); }
-      // 5. Clear canvas search
+      
       const csInput = document.getElementById('canvas-search-input');
       if (csInput) { csInput.value = ''; csInput.classList.remove('not-found'); }
       document.getElementById('canvas-search-clear')?.classList.add('hidden');
@@ -823,7 +905,7 @@ function renderVS(force = false) {
 function onTableClick(t) {
   pushUndo();
   addTableToGraph(t.name);
-  showDetail(t);
+  showDetail(t, true); // Evita acumulo de histórico ao clicar no Virtual Scroll
   renderVS(); // refresh active states
 }
 
@@ -845,14 +927,31 @@ function initCy() {
     minZoom: 0.1,
     maxZoom: 4,
     wheelSensitivity: 0.3,
+    boxSelectionEnabled: false, // Desativa seleção em massa com Ctrl
   });
   cy.on('zoom', applyAutoFontScaling);
   applyAutoFontScaling();
 
   cy.on('tap', 'node', e => {
-    const name = e.target.id();
+    const node = e.target;
+    const name = node.id();
     const t = tableIndex[name];
-    // P3 US 3.2: canvas taps skip history (only relation navigation builds breadcrumbs)
+
+    // Multi-Selection Sequence (Ctrl+Click)
+    if (e.originalEvent?.ctrlKey || e.originalEvent?.metaKey) {
+      const idx = querySequence.indexOf(name);
+      if (idx >= 0) {
+        querySequence.splice(idx, 1);
+        node.removeClass('cy-node-queued');
+      } else {
+        querySequence.push(name);
+        node.addClass('cy-node-queued');
+      }
+      updateHud();
+      return;
+    }
+
+    // P3 US 3.2: canvas taps skip history
     if (t) showDetail(t, true);
     if (appConfig.directionalHighlight) applyDirectionalHighlight(name);
   });
@@ -980,6 +1079,14 @@ function buildCyStyle() {
       },
     },
     {
+      selector: 'node.cy-node-queued',
+      style: {
+        'border-color': '#3b82f6',
+        'border-width': 4,
+        'z-index': 9999,
+      },
+    },
+    {
       selector: 'node.shift-queued',
       style: {
         'border-color': '#22c55e',
@@ -997,10 +1104,8 @@ function buildCyStyle() {
         'label':                 appConfig.showRelationName ? 'data(label)' : '',
         'source-label':          appConfig.showMultiplicity ? 'data(sourceCardinality)' : '',
         'target-label':          appConfig.showMultiplicity ? 'data(targetCardinality)' : '',
-        'source-label-offset':   10,
-        'target-label-offset':   10,
-        'source-text-offset':    14,
-        'target-text-offset':    14,
+        'source-text-offset':    10,
+        'target-text-offset':    10,
         'font-size':             '9px',
         'color':                 '#6b7280',
         'text-background-opacity': 0.85,
@@ -1266,11 +1371,15 @@ function updateGraphStats() {
   const nodes = cy?.nodes().length || 0;
   const edges = cy?.edges().length || 0;
   const badge = document.getElementById('graph-node-count');
+  const searchWrap = document.getElementById('canvas-search-wrap');
+  
   if (nodes > 0) {
     badge.textContent = `${nodes} tabelas · ${edges} relações`;
     badge.classList.remove('hidden');
+    searchWrap?.classList.remove('hidden'); // Mostra localizador se houver nós
   } else {
     badge.classList.add('hidden');
+    searchWrap?.classList.add('hidden'); // Esconde localizador se vazio
   }
   syncWelcomeVisibility();
 }
@@ -1725,16 +1834,23 @@ function genSimpleQuery() {
 function generatePathQuery(path) {
   if (!path || path.length < 2) return;
   queryPath = path;
-  const lastRel = path[path.length - 2]?.relation;
-  const many = window.D365Pathfinding?.shouldUseWhileSelect
-    ? window.D365Pathfinding.shouldUseWhileSelect(lastRel)
-    : ['ZeroMore', 'OneMore'].includes(lastRel?.relatedTableCardinality);
-  whileSelectMode = many && appConfig.defaultIterative;
+
+  // Verifica se existe QUALQUER relação 1:N no caminho completo (usando regex para abranger 'More')
+  const hasMany = path.some(step =>
+    step.relation && /More/i.test(step.relation.relatedTableCardinality || '')
+  );
+
+  whileSelectMode = hasMany;
+
   const toggleBtn = document.getElementById('toggle-while-select-btn');
-  toggleBtn.classList.toggle('hidden', !many);
-  toggleBtn.classList.toggle('btn-primary', whileSelectMode);
+  if (toggleBtn) {
+    toggleBtn.classList.remove('hidden');
+    toggleBtn.classList.toggle('btn-primary', whileSelectMode);
+  }
+
   renderQueryAccordion(path);
-  switchTab('query');
+  switchTab('query', true);
+  document.getElementById('detail-panel').classList.remove('hidden');
 }
 
 function tableAlias(name) {

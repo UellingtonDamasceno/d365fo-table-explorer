@@ -52,7 +52,6 @@
 
       <div class="header-center">
         <button class="btn btn-outline btn-sm" id="clear-graph-btn" title="Limpar todos os nós do grafo"><span class="btn-icon">🗑</span><span class="btn-text">Limpar</span></button>
-        <button class="btn btn-outline btn-sm" id="fit-graph-btn" title="Ajustar visualização"><span class="btn-icon">⊞</span><span class="btn-text">Ajustar</span></button>
         <button class="btn btn-outline btn-sm" id="toggle-labels-btn" title="Alternar labels das arestas"><span class="btn-icon">🏷</span><span class="btn-text">Labels</span></button>
         <select id="layout-select" class="region-select" title="Algoritmo de layout do grafo">
           <option value="cose">Layout: Cose</option>
@@ -66,13 +65,8 @@
       <div class="header-actions">
         <span id="graph-node-count" class="graph-count-badge hidden"></span>
         <button class="btn btn-outline btn-sm" id="open-dashboard-btn" title="Análise de metadados"><span class="btn-icon">📊</span><span class="btn-text">Análise</span></button>
-        <button class="btn btn-outline btn-sm" id="open-telemetry-btn" title="Relatório de Performance"><span class="btn-icon">🚀</span><span class="btn-text">Telemetria</span></button>
         <button class="btn btn-outline btn-sm" id="open-settings-btn" title="Configurações"><span class="btn-icon">⚙️</span><span class="btn-text">Config</span></button>
         <button class="btn btn-outline btn-sm" id="shortcuts-help-btn" title="Ver atalhos de teclado"><span class="btn-icon">⌨</span><span class="btn-text">Atalhos</span></button>
-        <button class="btn btn-outline btn-sm" id="undo-btn" title="Desfazer última ação" disabled><span class="btn-icon">↩</span><span class="btn-text">Desfazer</span></button>
-        <button class="btn btn-outline btn-sm" id="export-graph-btn" title="Exportar estado do grafo"><span class="btn-icon">💾</span><span class="btn-text">Exportar</span></button>
-        <button class="btn btn-outline btn-sm" id="import-graph-btn" title="Importar estado do grafo"><span class="btn-icon">📤</span><span class="btn-text">Importar</span></button>
-        <input type="file" id="import-graph-input" accept=".json" style="display:none" />
         <button class="btn btn-primary btn-sm" id="import-directory-btn" title="Atualizar metadados (Re-scan)"><span class="btn-icon">🧭</span><span class="btn-text">Atualizar Metadados</span></button>
       </div>
       <button class="btn btn-outline btn-sm header-menu-toggle" id="header-menu-toggle" title="Abrir ações">☰</button>
@@ -116,28 +110,15 @@
           <div id="list-status" class="list-status"></div>
         </div>
 
-        <!-- Pathfinding panel -->
-        <div class="path-panel">
-          <div class="group-header">
-            <span>🔀 Caminho mais curto</span>
-          </div>
-          <div class="path-controls">
-            <label class="path-option"><input type="checkbox" id="strict-direction-inline" /> Usar direção estrita</label>
-            <input id="path-from" type="text" class="path-input" placeholder="Tabela origem..." autocomplete="off" list="path-from-list" />
-            <datalist id="path-from-list"></datalist>
-            <input id="path-to" type="text" class="path-input" placeholder="Tabela destino..." autocomplete="off" list="path-to-list" />
-            <datalist id="path-to-list"></datalist>
-            <div id="waypoints-container"></div>
-            <datalist id="waypoints-datalist"></datalist>
-            <button class="btn btn-ghost btn-sm" id="add-waypoint-btn" title="Adicionar ponto intermediário">＋ Via</button>
-            <button class="btn btn-primary btn-sm" id="find-path-btn">🔍 Encontrar Caminho</button>
-            <button class="btn btn-ghost btn-sm" id="find-alt-routes-btn">🔀 Ver rotas alternativas</button>
-          </div>
-          <div id="shift-path-display" class="shift-path-display hidden">
-            <span id="shift-path-badge" class="shift-path-badge"></span>
-            <button class="btn btn-ghost btn-sm" id="clear-shift-path-btn">✕ Limpar</button>
-          </div>
-          <div id="path-result" class="path-result hidden"></div>
+        <div id="shift-path-display" class="shift-path-display hidden">
+          <span id="shift-path-badge" class="shift-path-badge"></span>
+          <button class="btn btn-ghost btn-sm" id="clear-shift-path-btn">✕ Limpar</button>
+        </div>
+
+        <div class="sidebar-path-trigger" style="padding: 12px; border-top: 1px solid var(--sidebar-bdr);">
+          <button class="btn btn-primary" id="open-pathfinding-btn" style="width:100%; justify-content:center;">
+             🔀 Construtor de Caminho
+          </button>
         </div>
 
       </aside>
@@ -170,8 +151,16 @@
           <!-- Cytoscape canvas -->
           <div id="cy"></div>
 
+          <!-- Selection HUD -->
+          <div id="path-builder-hud" class="path-builder-hud hidden">
+            <div class="hud-sequence" id="hud-sequence"></div>
+            <div class="hud-actions">
+              <button class="btn btn-primary btn-sm" id="hud-find-btn">🔍 Gerar Query</button>
+            </div>
+          </div>
+
           <!-- Canvas node search (US P3 1.2) -->
-          <div class="canvas-search-wrap" id="canvas-search-wrap">
+          <div class="canvas-search-wrap hidden" id="canvas-search-wrap">
             <span class="canvas-search-icon">🔍</span>
             <input id="canvas-search-input" type="text" placeholder="Buscar nó no canvas..." autocomplete="off" />
             <button id="canvas-search-clear" class="canvas-search-clear-btn hidden" title="Limpar">✕</button>
@@ -179,22 +168,20 @@
 
           <!-- Graph overlay controls -->
           <div class="graph-ctrl-bar">
-            <button class="graph-ctrl-btn" id="zoom-in-btn" title="Zoom In">＋</button>
-            <button class="graph-ctrl-btn" id="zoom-out-btn" title="Zoom Out">－</button>
-            <button class="graph-ctrl-btn" id="fit-btn2" title="Ajustar tela">⊞</button>
-            <button class="graph-ctrl-btn" id="bubble-anim-btn" title="Animação bolha">🫧</button>
+            <div class="expansion-mode-inline">
+              <button class="exp-btn active" data-mode="full" title="Expandir: Tudo">F</button>
+              <button class="exp-btn" data-mode="filtered" title="Expandir: Escolher">S</button>
+              <button class="exp-btn" data-mode="manual" title="Expandir: Apenas Nó">M</button>
+            </div>
+            <div class="ctrl-sep"></div>
+            <button class="graph-ctrl-btn" id="zoom-in-btn" title="Aumentar Zoom">＋</button>
+            <button class="graph-ctrl-btn" id="zoom-out-btn" title="Diminuir Zoom">－</button>
+            <button class="graph-ctrl-btn" id="fit-btn2" title="Ajustar ao centro">⊞</button>
+            <button class="graph-ctrl-btn" id="bubble-anim-btn" title="Efeito Bolha">🫧</button>
           </div>
 
           <!-- Legend -->
           <div class="graph-legend" id="graph-legend"></div>
-
-          <!-- Expansion mode bar -->
-          <div class="expansion-mode-bar" id="expansion-mode-bar">
-            <span class="expansion-label">Expansão:</span>
-            <button class="exp-btn active" data-mode="full" title="Expandir todas as relações">Full</button>
-            <button class="exp-btn" data-mode="filtered" title="Escolher quais relações expandir">Filtered</button>
-            <button class="exp-btn" data-mode="manual" title="Adicionar nó sem expandir">Manual</button>
-          </div>
 
         </div>
 
@@ -403,6 +390,15 @@
         <div class="settings-row"><span>Preferir while select por padrão</span><input id="cfg-default-iterative" type="checkbox" /></div>
         <div class="settings-row"><span>Incluir DataAreaId e Partition</span><input id="cfg-include-system-fields" type="checkbox" /></div>
       </div>
+      <!-- Portabilidade movida para cá -->
+      <div class="settings-section" style="margin-top:15px; border-top: 1px dashed var(--border);">
+        <h5>💾 Portabilidade do Grafo</h5>
+        <div style="display:flex; gap:10px; margin-top:10px;">
+          <button class="btn btn-outline btn-sm" id="export-graph-btn" title="Salvar estado atual">Exportar JSON</button>
+          <button class="btn btn-outline btn-sm" id="import-graph-btn" title="Carregar estado salvo">Importar JSON</button>
+          <input type="file" id="import-graph-input" accept=".json" style="display:none" />
+        </div>
+      </div>
     </div>
   </div>
 
@@ -442,6 +438,10 @@
           <div id="dash-orphans"></div>
         </div>
       </div>
+      <div class="settings-section" style="margin-top:20px; border-color:var(--primary)">
+        <h5 style="color:var(--primary)">🚀 Performance</h5>
+        <button class="btn btn-primary btn-sm" id="open-telemetry-btn">Ver Relatório Detalhado de Ingestão</button>
+      </div>
     </div>
   </div>
 
@@ -457,6 +457,53 @@
       <div class="telemetry-content" id="telemetry-content">
         <p style="color:var(--text-muted);font-style:italic">Nenhum dado de telemetria disponível. Realize uma importação para gerar o relatório.</p>
       </div>
+    </div>
+  </div>
+
+  <!-- Pathfinding Modal Avançado -->
+  <div id="pathfinding-modal" class="shortcuts-modal hidden">
+    <div class="shortcuts-modal-inner" style="width: 600px; max-width: 95vw;">
+      <div class="shortcuts-modal-header">
+        <h4>🔀 Construtor de Caminho Avançado</h4>
+        <button class="btn btn-ghost btn-sm" id="path-modal-close-btn">✕</button>
+      </div>
+      
+      <div style="display: flex; flex-direction: column; gap: 20px; padding: 10px 0;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Origem (De)</label>
+            <input id="path-from" type="text" class="path-input" style="padding: 10px; font-size: 14px;" placeholder="Tabela de origem..." list="path-from-list" />
+            <datalist id="path-from-list"></datalist>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Destino (Para)</label>
+            <input id="path-to" type="text" class="path-input" style="padding: 10px; font-size: 14px;" placeholder="Tabela de destino..." list="path-to-list" />
+            <datalist id="path-to-list"></datalist>
+          </div>
+        </div>
+
+        <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; border: 1px dashed var(--border);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Paradas Intermediárias</label>
+            <button class="btn btn-ghost btn-xs" id="add-waypoint-btn">＋ Adicionar Via</button>
+          </div>
+          <div id="waypoints-container" style="display: flex; flex-direction: column; gap: 8px;"></div>
+          <datalist id="waypoints-datalist"></datalist>
+        </div>
+
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+          <input type="checkbox" id="strict-direction-inline" style="width: 16px; height: 16px;" /> 
+          <span>Usar direção estrita (ignora relações reversas)</span>
+        </label>
+      </div>
+
+      <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 12px; align-items: center;">
+        <div id="path-modal-status" style="margin-right: auto; font-size: 12px; font-weight: 600;"></div>
+        <button class="btn btn-ghost" id="find-alt-routes-btn">Rotas Alternativas</button>
+        <button class="btn btn-primary" id="find-path-btn" style="padding: 10px 20px;">🔍 Encontrar Caminho</button>
+      </div>
+
+      <div id="path-result" class="path-result hidden" style="margin-top: 20px; max-height: 200px; overflow-y: auto; background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px;"></div>
     </div>
   </div>
 
