@@ -15,7 +15,6 @@ let detailHistory  = [];       // Histórico de navegação no painel de detalhe
 let queryPath      = [];       // Caminho de tabelas para gerar query
 let expansionMode  = 'full';   // Modo de expansão: 'full' | 'filtered' | 'manual'
 let shiftPath      = [];       // Nós enfileirados por Shift+Click para pathfinding
-let pathWaypoints = [];
 let sortOrder = 'asc';
 let undoStack = [];
 let bubbleAnimEnabled = false;
@@ -539,13 +538,6 @@ function setLoading(msg) {
 function showLoadingOverlay() {
   const overlay = document.getElementById('loading-overlay');
   overlay.style.display = 'flex';
-}
-
-function hideOverlay() {
-  const overlay = document.getElementById('loading-overlay');
-  overlay.classList.add('hidden');
-  overlay.style.display = 'none';
-  document.getElementById('app').classList.remove('hidden');
 }
 
 function resetIngestionProgress() {
