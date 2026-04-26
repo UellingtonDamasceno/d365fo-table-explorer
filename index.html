@@ -151,6 +151,7 @@
 
           <!-- Selection HUD -->
           <div id="path-builder-hud" class="path-builder-hud hidden">
+            <div class="hud-drag-handle" title="Arrastar HUD">⋮⋮</div>
             <div class="hud-sequence" id="hud-sequence"></div>
             <div class="hud-actions">
               <button class="btn btn-primary btn-sm" id="hud-find-btn">🔍 Gerar Query</button>
@@ -167,7 +168,8 @@
           </div>
 
           <!-- Graph overlay controls -->
-          <div class="graph-ctrl-bar collapsed" id="graph-ctrl-bar">
+          <div class="graph-ctrl-bar collapsed hidden" id="graph-ctrl-bar">
+            <div class="graph-ctrl-tooltip" id="graph-ctrl-tooltip"></div>
             <div class="expansion-mode-inline">
               <button class="graph-ctrl-btn" id="clear-graph-btn" title="Limpar todos os nós do grafo">🗑</button>
               <button class="graph-ctrl-btn" id="toggle-labels-btn" title="Alternar labels das arestas">🏷</button>
@@ -179,13 +181,14 @@
               <button class="graph-ctrl-btn" id="zoom-in-btn" title="Aumentar Zoom">＋</button>
               <button class="graph-ctrl-btn" id="zoom-out-btn" title="Diminuir Zoom">－</button>
               <button class="graph-ctrl-btn" id="fit-btn2" title="Ajustar ao centro">⊞</button>
+              <button class="graph-ctrl-btn" id="toggle-legend-btn" title="Mostrar/Ocultar Legenda">🗺️</button>
               <button class="graph-ctrl-btn" id="bubble-anim-btn" title="Efeito Bolha">🫧</button>
             </div>
             <button class="graph-ctrl-toggle-btn" id="toggle-ctrl-bar-btn" title="Mostrar/Esconder controles">⚙️</button>
           </div>
 
           <!-- Legend -->
-          <div class="graph-legend" id="graph-legend"></div>
+          <div class="graph-legend hidden" id="graph-legend"></div>
 
         </div>
 
@@ -303,25 +306,7 @@
                 <button class="btn btn-outline btn-sm" id="gen-simple-query-btn">⚡ Gerar Query Simples</button>
               </div>
 
-              <div id="query-output" class="hidden">
-                <div style="margin-bottom:8px">
-                  <button class="btn btn-ghost btn-sm hidden" id="toggle-while-select-btn">🔁 Gerar bloco de iteração (while select)</button>
-                </div>
-                <div class="query-path-label" id="query-path-label"></div>
-
-                <h4 class="query-lang-label">SQL</h4>
-                <div class="code-block">
-                  <pre id="sql-output" class="query-pre"></pre>
-                  <button class="copy-btn" onclick="copyCode('sql-output', this)">📋 Copiar</button>
-                </div>
-
-                <h4 class="query-lang-label" style="margin-top:14px">X++ (select statement)</h4>
-                <div class="code-block">
-                  <pre id="xpp-output" class="query-pre"></pre>
-                  <button class="copy-btn" onclick="copyCode('xpp-output', this)">📋 Copiar</button>
-                </div>
-              </div>
-
+              <div id="query-output" class="hidden"></div>
               <div id="query-accordion" class="hidden"></div>
 
             </div>
@@ -372,16 +357,11 @@
           <tr><td><kbd class="shortcut-key">Ctrl+,</kbd></td><td>Abrir configurações</td></tr>
           <tr><td><kbd class="shortcut-key">Ctrl+B</kbd></td><td>Alternar modo bolha</td></tr>
           <tr><td><kbd class="shortcut-key">Ctrl+S</kbd></td><td>Exportar grafo</td></tr>
-          <tr><td><kbd class="shortcut-key">Ctrl+Shift+S</kbd></td><td>Exportar grafo (alternativo)</td></tr>
-          <tr><td><kbd class="shortcut-key">Ctrl+O</kbd></td><td>Importar grafo</td></tr>
-          <tr><td><kbd class="shortcut-key">Ctrl+N</kbd></td><td>Carregar novo JSON</td></tr>
-          <tr><td><kbd class="shortcut-key">Ctrl+Alt+L</kbd></td><td>Forçar redesenho do layout</td></tr>
           <tr><td><kbd class="shortcut-key">Ctrl+L</kbd></td><td>Limpar grafo</td></tr>
           <tr><td><kbd class="shortcut-key">Ctrl+Z</kbd></td><td>Desfazer ação</td></tr>
-          <tr><td><kbd class="shortcut-key">Duplo clique em nó</kbd></td><td>Expandir relações</td></tr>
-          <tr><td><kbd class="shortcut-key">Ctrl+Click em nó</kbd></td><td>Selecionar para query</td></tr>
-          <tr><td><kbd class="shortcut-key">Shift+Click em nó</kbd></td><td>Enfileirar para path</td></tr>
-          <tr><td><kbd class="shortcut-key">Click do meio em nó</kbd></td><td>Remover do grafo</td></tr>
+          <tr><td><kbd class="shortcut-key">Delete</kbd></td><td>Remover nós selecionados</td></tr>
+          <tr><td><kbd class="shortcut-key">Duplo clique</kbd></td><td>Expandir relações do nó</td></tr>
+          <tr><td><kbd class="shortcut-key">Ctrl+Click</kbd></td><td>Selecionar nós para query</td></tr>
         </tbody>
       </table>
     </div>
@@ -547,14 +527,40 @@
     </div>
   </div>
 
-  <script src="state.js?v=20260424a"></script>
-  <script src="metadata-store.js?v=20260424a"></script>
-  <script src="metadata-ingestion.js?v=20260424a"></script>
-  <script src="search-engine.js"></script>
-  <script src="query-engine.js"></script>
-  <script src="shortcuts.js"></script>
-  <script src="graph-engine.js"></script>
-  <script src="autocomplete.js"></script>
-  <script src="app.js?v=20260424a"></script>
+  <!-- ── 1. SHARED UTILS ─────────────────────────────────────── -->
+  <script src="shared/utils/dom.js"></script>
+  <script src="shared/utils/dom-ui.js"></script>
+  <script src="shared/utils/async.js"></script>
+  <script src="shared/utils/graph.js"></script>
+  <script src="shared/utils/string.js"></script>
+
+  <!-- ── 2. SHARED CONSTANTS ─────────────────────────────────── -->
+  <script src="shared/constants/group-colors.js"></script>
+  <script src="shared/constants/app-defaults.js"></script>
+
+  <!-- ── 3. CORE ─────────────────────────────────────────────── -->
+  <script src="core/events/EventBus.js"></script>
+  <script src="core/state/State.js"></script>
+  <script src="core/state/MetadataDB.js"></script>
+  <script src="core/state/TableStore.js"></script>
+
+  <!-- ── 4. FEATURES ─────────────────────────────────────────── -->
+  <script src="features/query/SqlBuilder.js"></script>
+  <script src="features/query/QueryRenderer.js"></script>
+  <script src="features/query/QueryController.js"></script>
+  <script src="features/ingestion/IngestionEngine.js"></script>
+  <script src="features/ingestion/IngestionController.js"></script>
+  <script src="features/pathfinding/BfsEngine.js"></script>
+  <script src="features/pathfinding/PathfindingController.js"></script>
+  <script src="features/graph/BubbleAnimation.js"></script>
+  <script src="features/graph/GraphController.js"></script>
+  <script src="features/dashboard/DashboardController.js"></script>
+  <script src="features/sidebar/TableRenderer.js"></script>
+  <script src="features/sidebar/VirtualScrollList.js"></script>
+  <script src="features/shortcuts/ShortcutController.js"></script>
+  <script src="features/autocomplete/AutocompleteController.js"></script>
+
+  <!-- ── 5. APP PRINCIPAL ────────────────────────────────────── -->
+  <script src="app.js?v=20260424b"></script>
 </body>
 </html>

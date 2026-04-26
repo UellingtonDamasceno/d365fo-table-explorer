@@ -1,9 +1,15 @@
-/* Browser-native metadata ingestion pipeline */
+/* =====================================================================
+   features/ingestion/IngestionEngine.js
+   Motor de ingestão nativo para XMLs do D365FO
+   ===================================================================== */
+'use strict';
+
 (function () {
   const AX_FOLDER_RX = /^AxTable(Extension)?$/i;
-  const WORKER_URL = 'metadata-worker.js?v=20260424g';
+  // O worker deve estar na mesma pasta ou acessível via URL relativa
+  const WORKER_URL = 'features/ingestion/MetadataWorker.js?v=20260424g';
 
-  const FOLDERS_TO_IGNORE = /^(AxClass|AxForm|AxQuery|AxReport|AxSecurityRole|AxSecurityDuty|AxSecurityPrivilege|AxSecurityPermission|AxMenu|AxMenuItem|AxLabel|AxTile|AxResource|AxEnum|AxEdt|AxWf|AxWorkflow|AxActionPane|AxFormExtension|bin|xppmetadata|descriptor|reports|resources|webfiles|buildproject)$/i;
+  const FOLDERS_TO_IGNORE = /^(AxClass|AxForm|AxQuery|AxReport|AxSecurityRole|AxSecurityDuty|AxSecurityPrivilege|AxSecurityPrivilege|AxSecurityPermission|AxMenu|AxMenuItem|AxLabel|AxTile|AxResource|AxEnum|AxEdt|AxWf|AxWorkflow|AxActionPane|AxFormExtension|bin|xppmetadata|descriptor|reports|resources|webfiles|buildproject)$/i;
 
   function supportsDirectoryImport() {
     return typeof window.showDirectoryPicker === 'function' && typeof Worker !== 'undefined';

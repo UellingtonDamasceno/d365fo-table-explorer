@@ -1119,7 +1119,17 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
 .shortcut-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .shortcut-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .shortcut-table tr:last-child td { border-bottom: none; }
-.shortcut-key { display: inline-block; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 4px; padding: 2px 7px; font-size: 11px; font-family: var(--mono); color: var(--text); }
+.shortcut-key { 
+  display: inline-block; 
+  background: #111827; 
+  border: 1px solid #374151; 
+  border-radius: 4px; 
+  padding: 2px 7px; 
+  font-size: 11px; 
+  font-family: var(--mono); 
+  color: #ffffff; 
+  box-shadow: 0 1px 0 rgba(255,255,255,0.1);
+}
 .settings-modal-inner {
   width: min(760px, 96vw);
   background: #1e2130;
@@ -1267,16 +1277,52 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); font
   top: 65px;
   left: 50%;
   transform: translateX(-50%);
-  background: #1e2130;
-  border: 1px solid #3d4468;
-  padding: 10px 24px;
+  background: rgba(30, 33, 48, 0.9);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--primary);
+  padding: 8px 8px 8px 18px;
   border-radius: 40px;
   display: flex;
   align-items: center;
   gap: 15px;
   z-index: 1600;
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  user-select: none;
 }
+.hud-drag-handle {
+  cursor: move;
+  color: var(--text-muted);
+  font-size: 16px;
+  font-weight: bold;
+  padding-right: 8px;
+  border-right: 1px solid #3d4468;
+  line-height: 1;
+}
+
+/* Tooltip lateral da barra de controles */
+.graph-ctrl-tooltip {
+  position: absolute;
+  right: 55px;
+  background: rgba(17, 24, 39, 0.95);
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(10px);
+  transition: all 0.2s ease;
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  z-index: 1600;
+}
+.graph-ctrl-tooltip.visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.graph-legend.hidden { display: none !important; }
 .hud-sequence { display: flex; align-items: center; gap: 8px; color: #c8ccd8; font-weight: 600; font-size: 13px; }
 .hud-step { background: #2d3250; padding: 4px 12px; border-radius: 12px; border: 1px solid #3d4468; color: #fff; }
 

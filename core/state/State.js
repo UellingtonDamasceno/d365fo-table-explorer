@@ -1,4 +1,9 @@
-/* Lightweight state module */
+/* =====================================================================
+   core/state/State.js
+   Gerenciamento de persistência de configurações (localStorage)
+   ===================================================================== */
+'use strict';
+
 (function () {
   const APP_CONFIG_KEY = 'd365fo-table-explorer:config:v2';
   const DEFAULT_CONFIG = {
@@ -14,6 +19,7 @@
     maxDepth: 8,
     dashboardUseSidebarFilter: true,
     includeSystemFields: false,
+    userWantsLegend: true,
   };
 
   function normalizeConfig(raw) {

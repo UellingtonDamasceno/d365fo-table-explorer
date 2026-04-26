@@ -1,4 +1,9 @@
-/* Local-first metadata persistence (IndexedDB via Dexie) */
+/* =====================================================================
+   core/state/MetadataDB.js
+   Persistência de metadados em IndexedDB (via Dexie)
+   ===================================================================== */
+'use strict';
+
 (function () {
   const DB_NAME = 'd365fo-table-explorer-db';
   const IMPORT_INFO_KEY = 'last-import';
@@ -54,7 +59,7 @@
 
         // Merge lógico: combina campos, relações e modelos
         const mergedModels = uniq([...(base.models || []), ...(incoming.models || [])]);
-        
+
         // Merge de campos (deduplicado por nome)
         const fieldMap = new Map();
         [...(base.fields || []), ...(incoming.fields || [])].forEach(f => {
@@ -105,12 +110,12 @@
     await clearAll();
     const tables = (payload.tables || []).map(normalizeTable);
     await d.table('tables').bulkPut(tables);
-    await d.table('meta').put({ 
-      key: IMPORT_INFO_KEY, 
-      value: { 
-        importedAt: new Date().toISOString(), 
-        totalTables: tables.length 
-      } 
+    await d.table('meta').put({
+      key: IMPORT_INFO_KEY,
+      value: {
+        importedAt: new Date().toISOString(),
+        totalTables: tables.length
+      }
     });
     return true;
   }
