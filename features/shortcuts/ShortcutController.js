@@ -10,6 +10,7 @@
    * Chamado no final do carregamento do app.
    */
   function init() {
+    console.log('🚀 ShortcutController: Sistema de atalhos inicializado.');
     window.addEventListener('keydown', handleGlobalKeyDown);
   }
 
@@ -18,21 +19,22 @@
    * @param {KeyboardEvent} e
    */
   function handleGlobalKeyDown(e) {
-    // Evitar atalhos se estiver em um campo de texto
-    const tag = e.target.tagName;
-    const isEditable = e.target.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-
     const ctrl = e.ctrlKey || e.metaKey;
     const shift = e.shiftKey;
     const alt = e.altKey;
+    const code = e.code;
     const key = e.key.toLowerCase();
+
+    // Evitar atalhos se estiver em um campo de texto
+    const tag = e.target.tagName;
+    const isEditable = e.target.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 
     if (isEditable && key !== 'escape') {
       return;
     }
 
     // Delete / Backspace: Remover selecionados
-    if (key === 'delete' || key === 'backspace') {
+    if (code === 'Delete' || code === 'Backspace') {
       const selected = window.cy?.nodes(':selected');
       if (selected && selected.length > 0) {
         e.preventDefault();
@@ -51,7 +53,7 @@
     }
 
     // Ctrl + F: Focar busca no canvas
-    if (ctrl && key === 'f') {
+    if (ctrl && code === 'KeyF') {
       e.preventDefault();
       const inp = document.getElementById('canvas-search-input');
       if (inp) {
@@ -67,41 +69,49 @@
     }
 
     // Ctrl + B: Alternar bolha
-    if (ctrl && key === 'b') {
+    if (ctrl && code === 'KeyB') {
       e.preventDefault();
       document.getElementById('bubble-anim-btn')?.click();
     }
 
-    // Ctrl + S: Exportar grafo
-    if (ctrl && key === 's') {
+    // Ctrl + S: Exportar grafo (JSON)
+    if (ctrl && !alt && code === 'KeyS') {
       e.preventDefault();
       window.exportGraph();
     }
 
     // Ctrl + O: Importar grafo
-    if (ctrl && key === 'o') {
+    if (ctrl && code === 'KeyO') {
       e.preventDefault();
       document.getElementById('import-graph-btn')?.click();
     }
 
     // Ctrl + L: Limpar grafo
-    if (ctrl && key === 'l') {
+    if (ctrl && !alt && code === 'KeyL') {
       e.preventDefault();
       if (confirm('Limpar grafo?')) window.clearGraph();
     }
 
     // Ctrl + Z: Desfazer
-    if (ctrl && key === 'z') {
+    if (ctrl && code === 'KeyZ') {
       e.preventDefault();
       window.undoAction?.();
     }
 
-    // Ctrl + Alt + L: Forçar Layout (Ajustado para capturar melhor em diferentes teclados)
-    if (ctrl && alt && key === 'l') {
+    // Ctrl + Alt + L: Forçar Layout
+    if (ctrl && alt && code === 'KeyL') {
       e.preventDefault();
       e.stopPropagation();
       if (typeof window.applyLayout === 'function') {
         window.applyLayout();
+      }
+    }
+
+    // Ctrl + Alt + P: Exportar Imagem
+    if (ctrl && alt && code === 'KeyP') {
+      e.preventDefault();
+      if (typeof window.exportImage === 'function') {
+        window.exportImage();
       }
     }
 

@@ -783,6 +783,7 @@ function undoAction() {
 }
 
 function exportGraph() { window.D365GraphController.exportGraph(cy); }
+function exportImage() { window.D365GraphController.exportImage(cy); }
 function importGraph(file) { 
   pushUndo(); 
   window.D365GraphController.importGraph(cy, file, window.D365TableStore, () => {
@@ -837,5 +838,6 @@ function applyDirectionalHighlight(nodeId) {
   });
 }
 
-window.exportGraph = exportGraph; window.clearGraph = clearGraph; window.undoAction = undoAction; window.applyLayout = applyLayout; window.closeDetail = closeDetail; window.removeNodeFromGraph = removeNodeFromGraph;
+window.exportGraph = exportGraph; window.exportImage = exportImage; window.clearGraph = clearGraph; window.undoAction = undoAction; window.applyLayout = applyLayout; window.closeDetail = closeDetail; window.removeNodeFromGraph = removeNodeFromGraph;
+window.querySequence = querySequence; window.updateHud = updateHud;
 window.querySequence = querySequence; window.updateHud = updateHud;
