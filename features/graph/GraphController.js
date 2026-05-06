@@ -257,6 +257,32 @@ const GraphController = {
   },
 
   /**
+   * Exporta o estado atual do grafo como uma imagem PNG.
+   */
+  exportImage(cy) {
+    if (!cy || cy.nodes().length === 0) {
+      alert('O grafo está vazio.');
+      return;
+    }
+
+    const pngContent = cy.png({
+      full: true,
+      maxWidth: 3840,
+      maxHeight: 2160,
+      bg: '#13141f'
+    });
+
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const filename = `d365fo-graph-${dateStr}.png`;
+
+    const a = document.createElement('a');
+    a.href = pngContent;
+    a.download = filename;
+    a.click();
+  },
+
+  /**
    * Importa o estado de um grafo a partir de um arquivo JSON.
    */
   importGraph(cy, file, tableStore, callback) {
@@ -271,7 +297,7 @@ const GraphController = {
           alert(`Tabelas não encontradas no metadata atual: ${unknown.map(t => t.name).join(', ')}`);
         }
 
-        // Limpa grafo atual (o orquestrador chama pushUndo antes)
+        // Limpa grafo atual
         cy.elements().remove();
         
         obj.tables.forEach(t => {
