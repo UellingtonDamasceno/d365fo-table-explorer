@@ -27,9 +27,17 @@ const GraphController = {
       elements: [],
       style: this.buildStyle(options.appConfig),
       layout: { name: 'preset' },
-      minZoom: 0.3,
+      minZoom: 0.2,
       maxZoom: 4,
       boxSelectionEnabled: false,
+      // Configurações de Ultra-Nitidez
+      pixelRatio: 'auto',
+      textureOnViewport: false,
+      motionBlur: false,
+      hideLabelsOnViewport: false,
+      hideEdgesOnViewport: false,
+      renderClear: 'always',
+      wheelSensitivity: 0.15,
     });
 
     return cy;
